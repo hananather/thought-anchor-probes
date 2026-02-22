@@ -75,6 +75,7 @@ def run_training(
     mlp_hidden_dim: int,
     mlp_max_iter: int,
     run_tripwires: bool = True,
+    run_name: str | None = None,
 ) -> dict[str, Any]:
     """Train baseline and probe models, then write metrics and predictions."""
     metadata = pd.read_parquet(metadata_path)
@@ -161,6 +162,8 @@ def run_training(
         )
 
     metrics_payload = {
+        "run_name": run_name,
+        "seed": int(random_seed),
         "val": val_metrics,
         "test": test_metrics,
         "tripwires": tripwires,
