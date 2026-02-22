@@ -106,12 +106,21 @@ def create_splits(
     rng.shuffle(shuffled)
 
     n = len(shuffled)
-    n_train = int(round(n * train_fraction))
-    n_val = int(round(n * val_fraction))
-
-    if n_train <= 0 or n_val <= 0 or n_train + n_val >= n:
-        msg = "Invalid split sizes. Increase number of problems or adjust fractions."
+    if n < 3:
+        msg = "Need at least 3 problems to create train, val, and test splits."
         raise ValueError(msg)
+
+    n_train = max(1, int(n * train_fraction))
+    n_val = max(1, int(n * val_fraction))
+
+    while n_train + n_val > n - 1:
+        if n_train >= n_val and n_train > 1:
+            n_train -= 1
+        elif n_val > 1:
+            n_val -= 1
+        else:
+            msg = "Invalid split sizes. Increase number of problems or adjust fractions."
+            raise ValueError(msg)
 
     train_ids = sorted(shuffled[:n_train])
     val_ids = sorted(shuffled[n_train : n_train + n_val])
