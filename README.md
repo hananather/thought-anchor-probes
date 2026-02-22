@@ -27,36 +27,30 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```
-2. Build problem ID cache and split by problem.
+2. Run the full pilot + full experiment workflow.
 ```bash
-python scripts/build_problem_index.py --config configs/experiment.yaml --refresh
+python scripts/run_experiments.py \
+  --config configs/experiment.yaml \
+  --pilot-config configs/experiment_pilot.yaml \
+  --full-config configs/experiment_full.yaml \
+  --problem-id 330 \
+  --readme-path README.md
 ```
-3. Verify stored rollout labels on one problem.
+3. Inspect per-stage artifacts.
 ```bash
-python scripts/verify_problem_labels.py --config configs/experiment.yaml --problem-id 4682
-```
-4. Extract sentence embeddings with one forward pass per problem.
-```bash
-python scripts/extract_embeddings.py --config configs/experiment.yaml
-```
-5. Train probes and write metrics.
-```bash
-python scripts/train_probes.py --config configs/experiment.yaml
-```
-6. Build a markdown report.
-```bash
-python scripts/build_report.py --config configs/experiment.yaml
+ls artifacts/runs/pilot
+ls artifacts/runs/full
 ```
 
 ## Optional Checks
 - Run span integrity checks on one problem.
 ```bash
-python scripts/check_spans.py --config configs/experiment.yaml --problem-id 4682
+python scripts/check_spans.py --config configs/experiment.yaml --problem-id 330 --sample-size 20
 ```
 - Recompute counterfactual labels for one problem.
 ```bash
 pip install -e ".[verify]"
-python scripts/verify_problem_labels.py --config configs/experiment.yaml --problem-id 4682 --counterfactual
+python scripts/verify_problem_labels.py --config configs/experiment.yaml --problem-id 330 --counterfactual
 ```
 
 ## MacBook Tips
@@ -66,12 +60,12 @@ python scripts/verify_problem_labels.py --config configs/experiment.yaml --probl
 - Avoid loading full rollouts except one verification problem.
 
 ## Output Files
-- `artifacts/sentence_embeddings.dat`
-- `artifacts/sentence_embeddings_shape.json`
-- `artifacts/sentence_metadata.parquet`
-- `artifacts/metrics.json`
-- `artifacts/predictions.parquet`
-- `artifacts/report.md`
+- `artifacts/runs/pilot/sentence_embeddings.dat`
+- `artifacts/runs/pilot/metrics_seed_*.json`
+- `artifacts/runs/pilot/aggregate_metrics.json`
+- `artifacts/runs/full/sentence_embeddings.dat`
+- `artifacts/runs/full/metrics_seed_*.json`
+- `artifacts/runs/full/aggregate_metrics.json`
 
 ## Repo Layout
 - `src/ta_probe/data_loading.py`: dataset listing and fast metadata loading.
@@ -80,7 +74,9 @@ python scripts/verify_problem_labels.py --config configs/experiment.yaml --probl
 - `src/ta_probe/activations.py`: one-layer hooks and pooled embeddings.
 - `src/ta_probe/models.py`: baseline and probe models.
 - `src/ta_probe/train.py`: training, evaluation, and tripwire checks.
-- `src/ta_probe/report.py`: markdown report generation.
+- `src/ta_probe/aggregate.py`: multi-seed metric aggregation.
+- `src/ta_probe/readme_update.py`: deterministic README marker updates.
+- `scripts/run_experiments.py`: end-to-end pilot + full orchestration.
 - `tests/`: unit tests for spans, labels, and metrics.
 
 ## Experiment Results
