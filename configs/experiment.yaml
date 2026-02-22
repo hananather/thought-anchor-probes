@@ -1,0 +1,41 @@
+dataset:
+  repo_id: uzaymacar/math-rollouts
+  model_dir: deepseek-r1-distill-llama-8b
+  temp_dir: temperature_0.6_top_p_0.95
+  split_dir: correct_base_solution
+  forced_split_dir: correct_base_solution_forced_answer
+  num_problems: 25
+  seed: 0
+
+labels:
+  counterfactual_field: counterfactual_importance_accuracy
+  anchor_percentile: 90.0
+  drop_last_chunk: true
+
+activations:
+  model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+  layer_mode: mid
+  layer_index:
+  pooling: mean
+  dtype: float16
+  device: auto
+  batch_size: 1
+
+training:
+  train_fraction: 0.7
+  val_fraction: 0.15
+  test_fraction: 0.15
+  random_seed: 0
+  k_values: [5, 10]
+  mlp_hidden_dim: 100
+  mlp_max_iter: 300
+
+paths:
+  problem_ids_json: data/problem_ids.json
+  splits_json: data/splits.json
+  embeddings_memmap: artifacts/sentence_embeddings.dat
+  embeddings_shape_json: artifacts/sentence_embeddings_shape.json
+  metadata_parquet: artifacts/sentence_metadata.parquet
+  metrics_json: artifacts/metrics.json
+  predictions_parquet: artifacts/predictions.parquet
+  report_md: artifacts/report.md

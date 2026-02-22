@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thought-anchor-probes"
+version = "0.1.0"
+description = "Sentence-level probes for Thought Anchors counterfactual importance"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "MATS" }]
+dependencies = [
+  "huggingface-hub>=0.30.0",
+  "numpy>=1.26.0",
+  "pandas>=2.2.0",
+  "pyarrow>=15.0.0",
+  "pydantic>=2.8.0",
+  "pyyaml>=6.0.2",
+  "scikit-learn>=1.5.0",
+  "scipy>=1.13.0",
+  "torch>=2.2.0",
+  "tqdm>=4.66.0",
+  "transformers>=4.44.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+  "ruff>=0.6.0",
+]
+verify = [
+  "sentence-transformers>=3.0.1",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "C4"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
