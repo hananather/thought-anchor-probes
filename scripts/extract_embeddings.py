@@ -24,6 +24,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional JSON path with explicit problem IDs. Default uses splits union.",
     )
+    parser.add_argument(
+        "--skip-failed",
+        action="store_true",
+        help="Skip problems that fail extraction and log them instead of failing.",
+    )
+    parser.add_argument(
+        "--failure-log",
+        default=None,
+        help="Optional path to write extraction failure details as JSON.",
+    )
     return parser.parse_args()
 
 
@@ -63,6 +73,8 @@ def main() -> None:
         embeddings_memmap_path=config.paths.embeddings_memmap,
         embeddings_shape_path=config.paths.embeddings_shape_json,
         metadata_path=config.paths.metadata_parquet,
+        skip_failed_problems=args.skip_failed,
+        failure_log_path=args.failure_log,
     )
 
     print(json.dumps(result, indent=2, sort_keys=True))

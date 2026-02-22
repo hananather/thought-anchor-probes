@@ -281,25 +281,17 @@ def extract_and_cache_embeddings(
     embeddings_memmap_path: str | Path,
     embeddings_shape_path: str | Path,
     metadata_path: str | Path,
+    skip_failed_problems: bool = False,
+    failure_log_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Extract sentence vectors and save memmap plus metadata."""
+    """Extract sentence vectors and save memmap plus metadata.
+
+    When ``skip_failed_problems`` is true, the function skips problems that fail
+    extraction and logs the reason per problem ID.
+    """
     if not problem_ids:
         msg = "No problem IDs provided"
         raise ValueError(msg)
-
-    metadata_cache: dict[int, dict[str, Any]] = {}
-    total_rows = 0
-    for problem_id in problem_ids:
-        payload = load_problem_metadata(
-            problem_id=problem_id,
-            repo_id=repo_id,
-            model_dir=model_dir,
-            temp_dir=temp_dir,
-            split_dir=split_dir,
-        )
-        metadata_cache[problem_id] = payload
-        n_chunks = len(payload["chunks_labeled"])
-        total_rows += max(0, n_chunks - 1) if drop_last_chunk else n_chunks
 
     model, tokenizer = load_model_and_tokenizer(
         model_name_or_path=model_name_or_path,
@@ -307,6 +299,61 @@ def extract_and_cache_embeddings(
         dtype_name=dtype_name,
     )
     layer_idx = resolve_layer_index(model, layer_mode, layer_index)
+
+    processed_problem_ids: list[int] = []
+    skipped_problem_ids: list[int] = []
+    skip_reasons: dict[str, str] = {}
+    extracted_vectors: list[np.ndarray] = []
+    extracted_frames: list[pd.DataFrame] = []
+    hidden_dim: int | None = None
+
+    for problem_id in problem_ids:
+        try:
+            payload = load_problem_metadata(
+                problem_id=problem_id,
+                repo_id=repo_id,
+                model_dir=model_dir,
+                temp_dir=temp_dir,
+                split_dir=split_dir,
+            )
+            vectors, frame = _build_problem_vectors(
+                problem_id=problem_id,
+                problem_data=payload,
+                model=model,
+                tokenizer=tokenizer,
+                layer_idx=layer_idx,
+                counterfactual_field=counterfactual_field,
+                anchor_percentile=anchor_percentile,
+                drop_last_chunk=drop_last_chunk,
+                device=device,
+            )
+        except Exception as exc:
+            if not skip_failed_problems:
+                raise
+            skipped_problem_ids.append(problem_id)
+            skip_reasons[str(problem_id)] = str(exc)
+            continue
+
+        if hidden_dim is None:
+            hidden_dim = int(vectors.shape[1])
+        elif vectors.shape[1] != hidden_dim:
+            msg = (
+                f"Hidden dimension mismatch for problem {problem_id}: "
+                f"expected {hidden_dim}, got {vectors.shape[1]}"
+            )
+            raise ValueError(msg)
+
+        processed_problem_ids.append(problem_id)
+        extracted_vectors.append(vectors)
+        extracted_frames.append(frame)
+
+    if not extracted_frames or hidden_dim is None:
+        msg = "No problem embeddings were extracted successfully"
+        if skip_reasons:
+            msg += f". Reasons: {skip_reasons}"
+        raise RuntimeError(msg)
+
+    total_rows = int(sum(len(frame) for frame in extracted_frames))
 
     memmap_file = Path(embeddings_memmap_path)
     memmap_file.parent.mkdir(parents=True, exist_ok=True)
@@ -317,43 +364,22 @@ def extract_and_cache_embeddings(
     shape_file = Path(embeddings_shape_path)
     shape_file.parent.mkdir(parents=True, exist_ok=True)
 
-    memmap: np.memmap | None = None
     frame_parts: list[pd.DataFrame] = []
     offset = 0
-    hidden_dim = 0
+    memmap = np.memmap(
+        memmap_file,
+        dtype=np.float32,
+        mode="w+",
+        shape=(total_rows, hidden_dim),
+    )
 
-    for problem_id in problem_ids:
-        vectors, frame = _build_problem_vectors(
-            problem_id=problem_id,
-            problem_data=metadata_cache[problem_id],
-            model=model,
-            tokenizer=tokenizer,
-            layer_idx=layer_idx,
-            counterfactual_field=counterfactual_field,
-            anchor_percentile=anchor_percentile,
-            drop_last_chunk=drop_last_chunk,
-            device=device,
-        )
-
-        if memmap is None:
-            hidden_dim = vectors.shape[1]
-            memmap = np.memmap(
-                memmap_file,
-                dtype=np.float32,
-                mode="w+",
-                shape=(total_rows, hidden_dim),
-            )
-
+    for vectors, frame in zip(extracted_vectors, extracted_frames, strict=True):
         n_rows = len(frame)
         memmap[offset : offset + n_rows] = vectors
         frame = frame.copy()
         frame["embedding_row"] = np.arange(offset, offset + n_rows, dtype=np.int64)
         frame_parts.append(frame)
         offset += n_rows
-
-    if memmap is None:
-        msg = "Failed to create embedding memmap"
-        raise RuntimeError(msg)
 
     if offset != total_rows:
         msg = f"Expected {total_rows} rows but wrote {offset}"
@@ -372,6 +398,24 @@ def extract_and_cache_embeddings(
     with shape_file.open("w", encoding="utf-8") as handle:
         json.dump(shape_payload, handle, indent=2, sort_keys=True)
 
+    if failure_log_path is not None:
+        failure_file = Path(failure_log_path)
+        failure_file.parent.mkdir(parents=True, exist_ok=True)
+        with failure_file.open("w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "attempted_problem_ids": [int(problem_id) for problem_id in problem_ids],
+                    "processed_problem_ids": [
+                        int(problem_id) for problem_id in processed_problem_ids
+                    ],
+                    "skipped_problem_ids": [int(problem_id) for problem_id in skipped_problem_ids],
+                    "skip_reasons": skip_reasons,
+                },
+                handle,
+                indent=2,
+                sort_keys=True,
+            )
+
     return {
         "rows": total_rows,
         "hidden_dim": hidden_dim,
@@ -379,6 +423,9 @@ def extract_and_cache_embeddings(
         "metadata_path": str(metadata_file),
         "embeddings_memmap": str(memmap_file),
         "shape_path": str(shape_file),
+        "processed_problem_ids": processed_problem_ids,
+        "skipped_problem_ids": skipped_problem_ids,
+        "skip_reasons": skip_reasons,
     }
 
 
