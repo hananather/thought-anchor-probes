@@ -4,5 +4,5 @@ __pycache__/
 .ruff_cache/
 *.pyc
 artifacts/
-data/problem_ids.json
-data/splits.json
+data/problem_ids*.json
+data/splits*.json

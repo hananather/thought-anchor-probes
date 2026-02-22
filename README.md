@@ -82,3 +82,8 @@ python scripts/verify_problem_labels.py --config configs/experiment.yaml --probl
 - `src/ta_probe/train.py`: training, evaluation, and tripwire checks.
 - `src/ta_probe/report.py`: markdown report generation.
 - `tests/`: unit tests for spans, labels, and metrics.
+
+## Experiment Results
+<!-- EXPERIMENT_RESULTS_START -->
+Run `python scripts/run_experiments.py --config configs/experiment.yaml` to populate this block.
+<!-- EXPERIMENT_RESULTS_END -->
