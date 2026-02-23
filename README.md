@@ -117,35 +117,35 @@ python -c "import torch, transformers; print(torch.__version__, transformers.__v
 ## Experiment Results
 
 <!-- EXPERIMENT_RESULTS_START -->
-Last updated: 2026-02-22 17:40:42
+Last updated: 2026-02-23 01:24:26
 
 ### Objective
 Run the full Thought Anchor probe plan with pilot and full stages.
 
 ### Environment
-- Host: MacBook-Pro-2.local
-- Platform: macOS-26.2-arm64-arm-64bit
-- Python: 3.11.8
+- Host: 5dcc8e944ec4
+- Platform: Linux-6.8.0-60-generic-x86_64-with-glibc2.35
+- Python: 3.11.10
 - Dataset listing date context: February 22, 2026
 
 ### Commands Executed
-- `python -m ruff check .` | exit=0 | 0.03s
-- `python -m pytest -q` | exit=0 | 3.35s
-- `python scripts/build_problem_index.py --config configs/experiment.yaml --refresh` | exit=0 | 0.35s
-- `python scripts/verify_problem_labels.py --config configs/experiment.yaml --problem-id 330` | exit=0 | 2.44s
-- `python scripts/check_spans.py --config configs/experiment.yaml --problem-id 330 --sample-size 20` | exit=0 | 3.74s
-- `python scripts/build_problem_index.py --config configs/experiment_pilot.yaml --refresh` | exit=0 | 0.36s
-- `python scripts/build_problem_index.py --config configs/experiment_full.yaml --refresh` | exit=0 | 0.34s
-- `python scripts/extract_embeddings.py --config configs/experiment_pilot.yaml --skip-failed --failure-log /Users/hananather/Desktop/log/MATS/probes/thought-anchor-probes/artifacts/runs/pilot/extraction_failures.json` | exit=0 | 403.48s
-- `python scripts/train_probes.py --config configs/experiment_pilot.yaml --seed 0 --run-name seed_0` | exit=0 | 1.86s
-- `python scripts/train_probes.py --config configs/experiment_pilot.yaml --seed 1 --run-name seed_1` | exit=0 | 1.23s
-- `python scripts/train_probes.py --config configs/experiment_pilot.yaml --seed 2 --run-name seed_2` | exit=0 | 1.22s
-- `python scripts/aggregate_runs.py --run-root /Users/hananather/Desktop/log/MATS/probes/thought-anchor-probes/artifacts/runs/pilot` | exit=0 | 0.31s
-- `python scripts/extract_embeddings.py --config configs/experiment_full.yaml --skip-failed --failure-log /Users/hananather/Desktop/log/MATS/probes/thought-anchor-probes/artifacts/runs/full/extraction_failures.json` | exit=0 | 553.25s
-- `python scripts/train_probes.py --config configs/experiment_full.yaml --seed 0 --run-name seed_0` | exit=0 | 3.02s
-- `python scripts/train_probes.py --config configs/experiment_full.yaml --seed 1 --run-name seed_1` | exit=0 | 2.73s
-- `python scripts/train_probes.py --config configs/experiment_full.yaml --seed 2 --run-name seed_2` | exit=0 | 2.58s
-- `python scripts/aggregate_runs.py --run-root /Users/hananather/Desktop/log/MATS/probes/thought-anchor-probes/artifacts/runs/full` | exit=0 | 0.32s
+- `python -m ruff check .` | exit=0 | 0.12s
+- `python -m pytest -q` | exit=0 | 8.12s
+- `python scripts/build_problem_index.py --config configs/experiment.yaml --refresh` | exit=0 | 0.59s
+- `python scripts/verify_problem_labels.py --config configs/experiment.yaml --problem-id 330` | exit=0 | 7.48s
+- `python scripts/check_spans.py --config configs/experiment.yaml --problem-id 330 --sample-size 20` | exit=0 | 7.07s
+- `python scripts/build_problem_index.py --config configs/experiment_pilot.yaml --refresh` | exit=0 | 0.60s
+- `python scripts/build_problem_index.py --config configs/experiment_full.yaml --refresh` | exit=0 | 0.60s
+- `python scripts/extract_embeddings.py --config configs/experiment_pilot.yaml --skip-failed --failure-log /workspace/thought-anchor-probes/artifacts/runs/pilot/extraction_failures.json --reuse-cache` | exit=0 | 33.27s
+- `python scripts/train_probes.py --config configs/experiment_pilot.yaml --seed 0 --run-name seed_0` | exit=0 | 10.95s
+- `python scripts/train_probes.py --config configs/experiment_pilot.yaml --seed 1 --run-name seed_1` | exit=0 | 11.10s
+- `python scripts/train_probes.py --config configs/experiment_pilot.yaml --seed 2 --run-name seed_2` | exit=0 | 11.31s
+- `python scripts/aggregate_runs.py --run-root /workspace/thought-anchor-probes/artifacts/runs/pilot` | exit=0 | 0.67s
+- `python scripts/extract_embeddings.py --config configs/experiment_full.yaml --skip-failed --failure-log /workspace/thought-anchor-probes/artifacts/runs/full/extraction_failures.json --reuse-cache` | exit=0 | 37.97s
+- `python scripts/train_probes.py --config configs/experiment_full.yaml --seed 0 --run-name seed_0` | exit=0 | 25.87s
+- `python scripts/train_probes.py --config configs/experiment_full.yaml --seed 1 --run-name seed_1` | exit=0 | 24.72s
+- `python scripts/train_probes.py --config configs/experiment_full.yaml --seed 2 --run-name seed_2` | exit=0 | 25.08s
+- `python scripts/aggregate_runs.py --run-root /workspace/thought-anchor-probes/artifacts/runs/full` | exit=0 | 0.63s
 
 ### Verification Gates
 - Resampling avg diff: 0.008326
@@ -159,31 +159,45 @@ Run the full Thought Anchor probe plan with pilot and full stages.
 ### Pilot Per-Seed Test Metrics
 | Run | Seed | Model | PR AUC | Spearman | Top-5 | Top-10 |
 |---|---:|---|---:|---:|---:|---:|
-| seed_0 | 0 | linear_probe | 0.1456 | 0.1315 | 0.0000 | 0.0000 |
-| seed_0 | 0 | mlp_probe | 0.1574 | 0.2708 | 0.0000 | 0.0000 |
+| seed_0 | 0 | activations_plus_position | 0.1472 | 0.1386 | 0.0000 | 0.0000 |
+| seed_0 | 0 | linear_probe | 0.1478 | 0.1380 | 0.0000 | 0.0000 |
+| seed_0 | 0 | mlp_probe | 0.1565 | 0.2705 | 0.0000 | 0.0000 |
 | seed_0 | 0 | position_baseline | 0.1415 | 0.4686 | 0.0000 | 0.1000 |
-| seed_1 | 1 | linear_probe | 0.1456 | 0.1315 | 0.0000 | 0.0000 |
-| seed_1 | 1 | mlp_probe | 0.1012 | 0.0968 | 0.0000 | 0.0000 |
+| seed_0 | 0 | text_only_baseline | 0.0955 | -0.0274 | 0.0000 | 0.0000 |
+| seed_1 | 1 | activations_plus_position | 0.1472 | 0.1386 | 0.0000 | 0.0000 |
+| seed_1 | 1 | linear_probe | 0.1478 | 0.1380 | 0.0000 | 0.0000 |
+| seed_1 | 1 | mlp_probe | 0.0993 | 0.0944 | 0.0000 | 0.0000 |
 | seed_1 | 1 | position_baseline | 0.1415 | 0.4686 | 0.0000 | 0.1000 |
-| seed_2 | 2 | linear_probe | 0.1456 | 0.1315 | 0.0000 | 0.0000 |
-| seed_2 | 2 | mlp_probe | 0.1649 | 0.0911 | 0.0000 | 0.3000 |
+| seed_1 | 1 | text_only_baseline | 0.0955 | -0.0274 | 0.0000 | 0.0000 |
+| seed_2 | 2 | activations_plus_position | 0.1472 | 0.1386 | 0.0000 | 0.0000 |
+| seed_2 | 2 | linear_probe | 0.1478 | 0.1380 | 0.0000 | 0.0000 |
+| seed_2 | 2 | mlp_probe | 0.1866 | 0.2109 | 0.2000 | 0.2000 |
 | seed_2 | 2 | position_baseline | 0.1415 | 0.4686 | 0.0000 | 0.1000 |
+| seed_2 | 2 | text_only_baseline | 0.0955 | -0.0274 | 0.0000 | 0.0000 |
 
 ### Pilot Mean and Std Across Seeds
 | Model | PR AUC mean | PR AUC std | Spearman mean | Spearman std | Top-5 mean | Top-5 std | Top-10 mean | Top-10 std |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| linear_probe | 0.1456 | 0.0000 | 0.1315 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| linear_probe | 0.1478 | 0.0000 | 0.1380 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| mlp_probe | 0.1475 | 0.0362 | 0.1919 | 0.0731 | 0.0667 | 0.0943 | 0.0667 | 0.0943 |
+| activations_plus_position | 0.1472 | 0.0000 | 0.1386 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
 | position_baseline | 0.1415 | 0.0000 | 0.4686 | 0.0000 | 0.0000 | 0.0000 | 0.1000 | 0.0000 |
-| mlp_probe | 0.1412 | 0.0284 | 0.1529 | 0.0834 | 0.0000 | 0.0000 | 0.1000 | 0.1414 |
+| text_only_baseline | 0.0955 | 0.0000 | -0.0274 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
 
 - Pilot best model by mean PR AUC: `linear_probe`
 
 ### Pilot Tripwire Outcomes
 | Run | Random-label near chance | Random-label PR AUC | Prevalence | Overfit can memorize | Overfit PR AUC |
 |---|---|---:|---:|---|---:|
-| seed_0 | True | 0.0877 | 0.1003 | False | 0.7540 |
-| seed_1 | True | 0.0841 | 0.1003 | False | 0.7279 |
-| seed_2 | True | 0.0982 | 0.1003 | False | 0.8447 |
+| seed_0 | True | 0.0875 | 0.1003 | False | 0.7571 |
+| seed_1 | True | 0.0841 | 0.1003 | False | 0.7274 |
+| seed_2 | True | 0.0981 | 0.1003 | False | 0.8439 |
+
+### Pilot Bootstrap CI Summary
+| Comparison | Point delta mean | Point delta std | Bootstrap delta mean | Bootstrap delta std | Seeds CI excludes 0 | Seeds |
+|---|---:|---:|---:|---:|---:|---:|
+| score_activations_plus_position_minus_score_position_baseline | 0.0057 | 0.0000 | 0.0057 | 0.0000 | 3 | 3 |
+| score_activations_plus_position_minus_score_text_only_baseline | 0.0518 | 0.0000 | 0.0518 | 0.0000 | 3 | 3 |
 
 ### Pilot Extraction Failures
 - No extraction failures were logged.
@@ -191,38 +205,52 @@ Run the full Thought Anchor probe plan with pilot and full stages.
 ### Full Per-Seed Test Metrics
 | Run | Seed | Model | PR AUC | Spearman | Top-5 | Top-10 |
 |---|---:|---|---:|---:|---:|---:|
-| seed_0 | 0 | linear_probe | 0.1766 | 0.1951 | 0.0667 | 0.1667 |
-| seed_0 | 0 | mlp_probe | 0.1708 | 0.2506 | 0.0000 | 0.0333 |
+| seed_0 | 0 | activations_plus_position | 0.1679 | 0.2286 | 0.0667 | 0.1333 |
+| seed_0 | 0 | linear_probe | 0.1670 | 0.2261 | 0.0667 | 0.1667 |
+| seed_0 | 0 | mlp_probe | 0.1523 | 0.2560 | 0.0000 | 0.0667 |
 | seed_0 | 0 | position_baseline | 0.1625 | 0.5125 | 0.0667 | 0.1000 |
-| seed_1 | 1 | linear_probe | 0.1766 | 0.1951 | 0.0667 | 0.1667 |
-| seed_1 | 1 | mlp_probe | 0.1901 | 0.2247 | 0.0667 | 0.1333 |
+| seed_0 | 0 | text_only_baseline | 0.1032 | -0.0135 | 0.0667 | 0.0667 |
+| seed_1 | 1 | activations_plus_position | 0.1679 | 0.2286 | 0.0667 | 0.1333 |
+| seed_1 | 1 | linear_probe | 0.1670 | 0.2261 | 0.0667 | 0.1667 |
+| seed_1 | 1 | mlp_probe | 0.1354 | 0.1917 | 0.0667 | 0.0667 |
 | seed_1 | 1 | position_baseline | 0.1625 | 0.5125 | 0.0667 | 0.1000 |
-| seed_2 | 2 | linear_probe | 0.1766 | 0.1951 | 0.0667 | 0.1667 |
-| seed_2 | 2 | mlp_probe | 0.1704 | 0.2727 | 0.0000 | 0.0667 |
+| seed_1 | 1 | text_only_baseline | 0.1032 | -0.0135 | 0.0667 | 0.0667 |
+| seed_2 | 2 | activations_plus_position | 0.1679 | 0.2286 | 0.0667 | 0.1333 |
+| seed_2 | 2 | linear_probe | 0.1670 | 0.2261 | 0.0667 | 0.1667 |
+| seed_2 | 2 | mlp_probe | 0.1911 | 0.3234 | 0.0667 | 0.1000 |
 | seed_2 | 2 | position_baseline | 0.1625 | 0.5125 | 0.0667 | 0.1000 |
+| seed_2 | 2 | text_only_baseline | 0.1032 | -0.0135 | 0.0667 | 0.0667 |
 
 ### Full Mean and Std Across Seeds
 | Model | PR AUC mean | PR AUC std | Spearman mean | Spearman std | Top-5 mean | Top-5 std | Top-10 mean | Top-10 std |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| mlp_probe | 0.1771 | 0.0092 | 0.2493 | 0.0196 | 0.0222 | 0.0314 | 0.0778 | 0.0416 |
-| linear_probe | 0.1766 | 0.0000 | 0.1951 | 0.0000 | 0.0667 | 0.0000 | 0.1667 | 0.0000 |
+| activations_plus_position | 0.1679 | 0.0000 | 0.2286 | 0.0000 | 0.0667 | 0.0000 | 0.1333 | 0.0000 |
+| linear_probe | 0.1670 | 0.0000 | 0.2261 | 0.0000 | 0.0667 | 0.0000 | 0.1667 | 0.0000 |
 | position_baseline | 0.1625 | 0.0000 | 0.5125 | 0.0000 | 0.0667 | 0.0000 | 0.1000 | 0.0000 |
+| mlp_probe | 0.1596 | 0.0233 | 0.2570 | 0.0538 | 0.0444 | 0.0314 | 0.0778 | 0.0157 |
+| text_only_baseline | 0.1032 | 0.0000 | -0.0135 | 0.0000 | 0.0667 | 0.0000 | 0.0667 | 0.0000 |
 
-- Full best model by mean PR AUC: `mlp_probe`
+- Full best model by mean PR AUC: `activations_plus_position`
 
 ### Full Tripwire Outcomes
 | Run | Random-label near chance | Random-label PR AUC | Prevalence | Overfit can memorize | Overfit PR AUC |
 |---|---|---:|---:|---|---:|
-| seed_0 | True | 0.0960 | 0.1009 | False | 0.8994 |
-| seed_1 | True | 0.0965 | 0.1009 | True | 0.9553 |
-| seed_2 | True | 0.0970 | 0.1009 | True | 0.9381 |
+| seed_0 | True | 0.0767 | 0.1009 | True | 0.9029 |
+| seed_1 | True | 0.0788 | 0.1009 | True | 0.9553 |
+| seed_2 | True | 0.1016 | 0.1009 | True | 0.9495 |
+
+### Full Bootstrap CI Summary
+| Comparison | Point delta mean | Point delta std | Bootstrap delta mean | Bootstrap delta std | Seeds CI excludes 0 | Seeds |
+|---|---:|---:|---:|---:|---:|---:|
+| score_activations_plus_position_minus_score_position_baseline | 0.0055 | 0.0000 | 0.0074 | 0.0005 | 0 | 3 |
+| score_activations_plus_position_minus_score_text_only_baseline | 0.0647 | 0.0000 | 0.0635 | 0.0004 | 3 | 3 |
 
 ### Full Extraction Failures
 - No extraction failures were logged.
 
 ### Methodology Fidelity
 - Planned and executed: resampling verification, span checks, pilot gate, full run, and three seeds.
-- Planned and executed: position baseline, linear probe, and MLP probe.
+- Planned and executed: position baseline, text-only baseline, linear probe, MLP probe, and activations+position probe.
 - Planned and executed: problem-level train, validation, and test splits.
 
 ### Deviations
