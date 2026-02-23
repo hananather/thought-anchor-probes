@@ -1,0 +1,557 @@
+{
+  "cache_provenance": {
+    "anchor_percentile": 90.0,
+    "compute_dtype": "float16",
+    "counterfactual_field": "counterfactual_importance_accuracy",
+    "drop_last_chunk": true,
+    "dtype": "float16",
+    "layer_index": 16,
+    "layer_mode": "mid",
+    "model_dir": "deepseek-r1-distill-llama-8b",
+    "model_name_or_path": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+    "pooling": "mean",
+    "repo_id": "uzaymacar/math-rollouts",
+    "requested_layer_index": null,
+    "split_dir": "incorrect_base_solution",
+    "temp_dir": "temperature_0.6_top_p_0.95"
+  },
+  "confidence_intervals": {
+    "score_activations_plus_position_minus_score_position_baseline": {
+      "ci_high": -0.019504840440453974,
+      "ci_low": -0.11914484303418343,
+      "delta_mean": -0.05549982508176019,
+      "group_col": "problem_id",
+      "n_bootstrap": 2000,
+      "n_valid_bootstrap": 2000,
+      "point_delta": -0.0572395364097755,
+      "score_a": "score_activations_plus_position",
+      "score_b": "score_position_baseline"
+    },
+    "score_activations_plus_position_minus_score_text_only_baseline": {
+      "ci_high": 0.06549434349204179,
+      "ci_low": -0.0022812243960473044,
+      "delta_mean": 0.028763364716901663,
+      "group_col": "problem_id",
+      "n_bootstrap": 2000,
+      "n_valid_bootstrap": 2000,
+      "point_delta": 0.032130950146693385,
+      "score_a": "score_activations_plus_position",
+      "score_b": "score_text_only_baseline"
+    }
+  },
+  "position_bin_metrics": {
+    "num_bins": 5,
+    "test": {
+      "activations_plus_position": [
+        {
+          "bin_index": 0,
+          "count": 137,
+          "left_inclusive": 0.0,
+          "pr_auc": 0.19344682297831936,
+          "prevalence": 0.1678832116788321,
+          "right_inclusive": 0.2
+        },
+        {
+          "bin_index": 1,
+          "count": 135,
+          "left_inclusive": 0.2,
+          "pr_auc": 0.2862954097607532,
+          "prevalence": 0.2074074074074074,
+          "right_inclusive": 0.4
+        },
+        {
+          "bin_index": 2,
+          "count": 136,
+          "left_inclusive": 0.4,
+          "pr_auc": 0.09096782335536825,
+          "prevalence": 0.07352941176470588,
+          "right_inclusive": 0.6000000000000001
+        },
+        {
+          "bin_index": 3,
+          "count": 135,
+          "left_inclusive": 0.6000000000000001,
+          "pr_auc": 0.0253235752024416,
+          "prevalence": 0.037037037037037035,
+          "right_inclusive": 0.8
+        },
+        {
+          "bin_index": 4,
+          "count": 138,
+          "left_inclusive": 0.8,
+          "pr_auc": 0.027394655276105597,
+          "prevalence": 0.028985507246376812,
+          "right_inclusive": 1.0
+        }
+      ],
+      "linear_probe": [
+        {
+          "bin_index": 0,
+          "count": 137,
+          "left_inclusive": 0.0,
+          "pr_auc": 0.19034716903019977,
+          "prevalence": 0.1678832116788321,
+          "right_inclusive": 0.2
+        },
+        {
+          "bin_index": 1,
+          "count": 135,
+          "left_inclusive": 0.2,
+          "pr_auc": 0.2829681307357824,
+          "prevalence": 0.2074074074074074,
+          "right_inclusive": 0.4
+        },
+        {
+          "bin_index": 2,
+          "count": 136,
+          "left_inclusive": 0.4,
+          "pr_auc": 0.09696480869471395,
+          "prevalence": 0.07352941176470588,
+          "right_inclusive": 0.6000000000000001
+        },
+        {
+          "bin_index": 3,
+          "count": 135,
+          "left_inclusive": 0.6000000000000001,
+          "pr_auc": 0.02515932751103517,
+          "prevalence": 0.037037037037037035,
+          "right_inclusive": 0.8
+        },
+        {
+          "bin_index": 4,
+          "count": 138,
+          "left_inclusive": 0.8,
+          "pr_auc": 0.024425737842345203,
+          "prevalence": 0.028985507246376812,
+          "right_inclusive": 1.0
+        }
+      ],
+      "mlp_probe": [
+        {
+          "bin_index": 0,
+          "count": 137,
+          "left_inclusive": 0.0,
+          "pr_auc": 0.16298211821229772,
+          "prevalence": 0.1678832116788321,
+          "right_inclusive": 0.2
+        },
+        {
+          "bin_index": 1,
+          "count": 135,
+          "left_inclusive": 0.2,
+          "pr_auc": 0.2277398900450182,
+          "prevalence": 0.2074074074074074,
+          "right_inclusive": 0.4
+        },
+        {
+          "bin_index": 2,
+          "count": 136,
+          "left_inclusive": 0.4,
+          "pr_auc": 0.08948951909249989,
+          "prevalence": 0.07352941176470588,
+          "right_inclusive": 0.6000000000000001
+        },
+        {
+          "bin_index": 3,
+          "count": 135,
+          "left_inclusive": 0.6000000000000001,
+          "pr_auc": 0.0342699222652646,
+          "prevalence": 0.037037037037037035,
+          "right_inclusive": 0.8
+        },
+        {
+          "bin_index": 4,
+          "count": 138,
+          "left_inclusive": 0.8,
+          "pr_auc": 0.04233250783709372,
+          "prevalence": 0.028985507246376812,
+          "right_inclusive": 1.0
+        }
+      ],
+      "position_baseline": [
+        {
+          "bin_index": 0,
+          "count": 137,
+          "left_inclusive": 0.0,
+          "pr_auc": 0.1827447184703843,
+          "prevalence": 0.1678832116788321,
+          "right_inclusive": 0.2
+        },
+        {
+          "bin_index": 1,
+          "count": 135,
+          "left_inclusive": 0.2,
+          "pr_auc": 0.24071414496773072,
+          "prevalence": 0.2074074074074074,
+          "right_inclusive": 0.4
+        },
+        {
+          "bin_index": 2,
+          "count": 136,
+          "left_inclusive": 0.4,
+          "pr_auc": 0.22009841241815079,
+          "prevalence": 0.07352941176470588,
+          "right_inclusive": 0.6000000000000001
+        },
+        {
+          "bin_index": 3,
+          "count": 135,
+          "left_inclusive": 0.6000000000000001,
+          "pr_auc": 0.06710060832141958,
+          "prevalence": 0.037037037037037035,
+          "right_inclusive": 0.8
+        },
+        {
+          "bin_index": 4,
+          "count": 138,
+          "left_inclusive": 0.8,
+          "pr_auc": 0.08109990695803053,
+          "prevalence": 0.028985507246376812,
+          "right_inclusive": 1.0
+        }
+      ],
+      "text_only_baseline": [
+        {
+          "bin_index": 0,
+          "count": 137,
+          "left_inclusive": 0.0,
+          "pr_auc": 0.14591161689184373,
+          "prevalence": 0.1678832116788321,
+          "right_inclusive": 0.2
+        },
+        {
+          "bin_index": 1,
+          "count": 135,
+          "left_inclusive": 0.2,
+          "pr_auc": 0.247036252547159,
+          "prevalence": 0.2074074074074074,
+          "right_inclusive": 0.4
+        },
+        {
+          "bin_index": 2,
+          "count": 136,
+          "left_inclusive": 0.4,
+          "pr_auc": 0.05548644511117867,
+          "prevalence": 0.07352941176470588,
+          "right_inclusive": 0.6000000000000001
+        },
+        {
+          "bin_index": 3,
+          "count": 135,
+          "left_inclusive": 0.6000000000000001,
+          "pr_auc": 0.02618756802193335,
+          "prevalence": 0.037037037037037035,
+          "right_inclusive": 0.8
+        },
+        {
+          "bin_index": 4,
+          "count": 138,
+          "left_inclusive": 0.8,
+          "pr_auc": 0.022481919470413968,
+          "prevalence": 0.028985507246376812,
+          "right_inclusive": 1.0
+        }
+      ]
+    },
+    "val": {
+      "activations_plus_position": [
+        {
+          "bin_index": 0,
+          "count": 89,
+          "left_inclusive": 0.0,
+          "pr_auc": 0.20950782429768364,
+          "prevalence": 0.19101123595505617,
+          "right_inclusive": 0.2
+        },
+        {
+          "bin_index": 1,
+          "count": 88,
+          "left_inclusive": 0.2,
+          "pr_auc": 0.3425191946151316,
+          "prevalence": 0.14772727272727273,
+          "right_inclusive": 0.4
+        },
+        {
+          "bin_index": 2,
+          "count": 87,
+          "left_inclusive": 0.4,
+          "pr_auc": 0.12648848686307487,
+          "prevalence": 0.09195402298850575,
+          "right_inclusive": 0.6000000000000001
+        },
+        {
+          "bin_index": 3,
+          "count": 88,
+          "left_inclusive": 0.6000000000000001,
+          "pr_auc": 0.1366189202953909,
+          "prevalence": 0.056818181818181816,
+          "right_inclusive": 0.8
+        },
+        {
+          "bin_index": 4,
+          "count": 90,
+          "left_inclusive": 0.8,
+          "pr_auc": 0.04066455696202532,
+          "prevalence": 0.022222222222222223,
+          "right_inclusive": 1.0
+        }
+      ],
+      "linear_probe": [
+        {
+          "bin_index": 0,
+          "count": 89,
+          "left_inclusive": 0.0,
+          "pr_auc": 0.21024637245360756,
+          "prevalence": 0.19101123595505617,
+          "right_inclusive": 0.2
+        },
+        {
+          "bin_index": 1,
+          "count": 88,
+          "left_inclusive": 0.2,
+          "pr_auc": 0.3422281542397997,
+          "prevalence": 0.14772727272727273,
+          "right_inclusive": 0.4
+        },
+        {
+          "bin_index": 2,
+          "count": 87,
+          "left_inclusive": 0.4,
+          "pr_auc": 0.12359052155696502,
+          "prevalence": 0.09195402298850575,
+          "right_inclusive": 0.6000000000000001
+        },
+        {
+          "bin_index": 3,
+          "count": 88,
+          "left_inclusive": 0.6000000000000001,
+          "pr_auc": 0.15558892372191607,
+          "prevalence": 0.056818181818181816,
+          "right_inclusive": 0.8
+        },
+        {
+          "bin_index": 4,
+          "count": 90,
+          "left_inclusive": 0.8,
+          "pr_auc": 0.05085064739536284,
+          "prevalence": 0.022222222222222223,
+          "right_inclusive": 1.0
+        }
+      ],
+      "mlp_probe": [
+        {
+          "bin_index": 0,
+          "count": 89,
+          "left_inclusive": 0.0,
+          "pr_auc": 0.18203359649154904,
+          "prevalence": 0.19101123595505617,
+          "right_inclusive": 0.2
+        },
+        {
+          "bin_index": 1,
+          "count": 88,
+          "left_inclusive": 0.2,
+          "pr_auc": 0.15357464385016958,
+          "prevalence": 0.14772727272727273,
+          "right_inclusive": 0.4
+        },
+        {
+          "bin_index": 2,
+          "count": 87,
+          "left_inclusive": 0.4,
+          "pr_auc": 0.07814228461864468,
+          "prevalence": 0.09195402298850575,
+          "right_inclusive": 0.6000000000000001
+        },
+        {
+          "bin_index": 3,
+          "count": 88,
+          "left_inclusive": 0.6000000000000001,
+          "pr_auc": 0.0932197178307018,
+          "prevalence": 0.056818181818181816,
+          "right_inclusive": 0.8
+        },
+        {
+          "bin_index": 4,
+          "count": 90,
+          "left_inclusive": 0.8,
+          "pr_auc": 0.05025703463203463,
+          "prevalence": 0.022222222222222223,
+          "right_inclusive": 1.0
+        }
+      ],
+      "position_baseline": [
+        {
+          "bin_index": 0,
+          "count": 89,
+          "left_inclusive": 0.0,
+          "pr_auc": 0.31174585308813685,
+          "prevalence": 0.19101123595505617,
+          "right_inclusive": 0.2
+        },
+        {
+          "bin_index": 1,
+          "count": 88,
+          "left_inclusive": 0.2,
+          "pr_auc": 0.1706799765571279,
+          "prevalence": 0.14772727272727273,
+          "right_inclusive": 0.4
+        },
+        {
+          "bin_index": 2,
+          "count": 87,
+          "left_inclusive": 0.4,
+          "pr_auc": 0.11174913158240017,
+          "prevalence": 0.09195402298850575,
+          "right_inclusive": 0.6000000000000001
+        },
+        {
+          "bin_index": 3,
+          "count": 88,
+          "left_inclusive": 0.6000000000000001,
+          "pr_auc": 0.06164481933929679,
+          "prevalence": 0.056818181818181816,
+          "right_inclusive": 0.8
+        },
+        {
+          "bin_index": 4,
+          "count": 90,
+          "left_inclusive": 0.8,
+          "pr_auc": 0.036421911421911424,
+          "prevalence": 0.022222222222222223,
+          "right_inclusive": 1.0
+        }
+      ],
+      "text_only_baseline": [
+        {
+          "bin_index": 0,
+          "count": 89,
+          "left_inclusive": 0.0,
+          "pr_auc": 0.14604579924697864,
+          "prevalence": 0.19101123595505617,
+          "right_inclusive": 0.2
+        },
+        {
+          "bin_index": 1,
+          "count": 88,
+          "left_inclusive": 0.2,
+          "pr_auc": 0.14298625970874715,
+          "prevalence": 0.14772727272727273,
+          "right_inclusive": 0.4
+        },
+        {
+          "bin_index": 2,
+          "count": 87,
+          "left_inclusive": 0.4,
+          "pr_auc": 0.08136176249755442,
+          "prevalence": 0.09195402298850575,
+          "right_inclusive": 0.6000000000000001
+        },
+        {
+          "bin_index": 3,
+          "count": 88,
+          "left_inclusive": 0.6000000000000001,
+          "pr_auc": 0.06116516833531523,
+          "prevalence": 0.056818181818181816,
+          "right_inclusive": 0.8
+        },
+        {
+          "bin_index": 4,
+          "count": 90,
+          "left_inclusive": 0.8,
+          "pr_auc": 0.024362892009950832,
+          "prevalence": 0.022222222222222223,
+          "right_inclusive": 1.0
+        }
+      ]
+    }
+  },
+  "rows": {
+    "test": 681,
+    "train": 2343,
+    "val": 442
+  },
+  "run_name": "seed_3",
+  "seed": 3,
+  "splits": {
+    "test": 3,
+    "train": 14,
+    "val": 3
+  },
+  "test": {
+    "activations_plus_position": {
+      "pr_auc": 0.13194242265500278,
+      "spearman_mean": -0.01711099121691421,
+      "top_10_recall": 0.03333333333333333,
+      "top_5_recall": 0.0
+    },
+    "linear_probe": {
+      "pr_auc": 0.12715397473065598,
+      "spearman_mean": -0.03303494467807989,
+      "top_10_recall": 0.03333333333333333,
+      "top_5_recall": 0.0
+    },
+    "mlp_probe": {
+      "pr_auc": 0.11538815455468913,
+      "spearman_mean": 0.04209223587514061,
+      "top_10_recall": 0.03333333333333333,
+      "top_5_recall": 0.0
+    },
+    "position_baseline": {
+      "pr_auc": 0.18918195906477828,
+      "spearman_mean": 0.21547450604374666,
+      "top_10_recall": 0.10000000000000002,
+      "top_5_recall": 0.0
+    },
+    "text_only_baseline": {
+      "pr_auc": 0.09981147250830939,
+      "spearman_mean": -0.03665472274326531,
+      "top_10_recall": 0.0,
+      "top_5_recall": 0.0
+    }
+  },
+  "tripwires": {
+    "overfit_one_problem_test": {
+      "can_memorize": true,
+      "problem_id": 330,
+      "train_pr_auc": 1.0
+    },
+    "random_label_test": {
+      "near_chance": true,
+      "test_pr_auc": 0.10676484721247076,
+      "test_prevalence": 0.1027900146842878
+    }
+  },
+  "val": {
+    "activations_plus_position": {
+      "pr_auc": 0.15650914437681082,
+      "spearman_mean": 0.06782105656574562,
+      "top_10_recall": 0.10000000000000002,
+      "top_5_recall": 0.06666666666666667
+    },
+    "linear_probe": {
+      "pr_auc": 0.1556834366935954,
+      "spearman_mean": 0.06307185706905606,
+      "top_10_recall": 0.10000000000000002,
+      "top_5_recall": 0.0
+    },
+    "mlp_probe": {
+      "pr_auc": 0.11504367312397798,
+      "spearman_mean": 0.16367792098568681,
+      "top_10_recall": 0.03333333333333333,
+      "top_5_recall": 0.0
+    },
+    "position_baseline": {
+      "pr_auc": 0.18871871452654682,
+      "spearman_mean": 0.3210328377531009,
+      "top_10_recall": 0.19999999999999998,
+      "top_5_recall": 0.13333333333333333
+    },
+    "text_only_baseline": {
+      "pr_auc": 0.09068125706035152,
+      "spearman_mean": 0.0730299879895746,
+      "top_10_recall": 0.03333333333333333,
+      "top_5_recall": 0.0
+    }
+  }
+}
