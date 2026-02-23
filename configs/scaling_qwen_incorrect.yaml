@@ -1,0 +1,45 @@
+dataset:
+  repo_id: uzaymacar/math-rollouts
+  model_dir: deepseek-r1-distill-qwen-14b
+  temp_dir: temperature_0.6_top_p_0.95
+  split_dir: incorrect_base_solution
+  forced_split_dir: incorrect_base_solution_forced_answer
+  num_problems: 9999
+  seed: 0
+
+labels:
+  counterfactual_field: counterfactual_importance_accuracy
+  anchor_percentile: 90.0
+  drop_last_chunk: true
+
+activations:
+  model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
+  layer_mode: mid
+  layer_index:
+  pooling: mean
+  dtype: float16
+  storage_dtype: float16
+  device: auto
+  batch_size: 1
+
+training:
+  train_fraction: 0.7
+  val_fraction: 0.15
+  test_fraction: 0.15
+  random_seed: 0
+  k_values: [5, 10]
+  mlp_hidden_dim: 100
+  mlp_max_iter: 300
+  bootstrap_iterations: 2000
+  bootstrap_seed:
+  position_bins: 5
+
+paths:
+  problem_ids_json: data/problem_ids_scaling_shared.json
+  splits_json: data/splits_scaling_shared.json
+  embeddings_memmap: artifacts/scaling/qwen_incorrect/sentence_embeddings.dat
+  embeddings_shape_json: artifacts/scaling/qwen_incorrect/sentence_embeddings_shape.json
+  metadata_parquet: artifacts/scaling/qwen_incorrect/sentence_metadata.parquet
+  metrics_json: artifacts/scaling/qwen_incorrect/metrics.json
+  predictions_parquet: artifacts/scaling/qwen_incorrect/predictions.parquet
+  report_md: artifacts/scaling/qwen_incorrect/report.md

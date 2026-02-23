@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,64 @@ def resolve_dtype(dtype_name: str) -> torch.dtype:
         msg = f"Unsupported dtype: {dtype_name}"
         raise ValueError(msg)
     return mapping[dtype_name]
+
+
+def resolve_numpy_dtype(dtype_name: str) -> np.dtype:
+    """Map storage dtype names to numpy dtypes."""
+    mapping = {
+        "float16": np.float16,
+        "float32": np.float32,
+    }
+    if dtype_name not in mapping:
+        msg = f"Unsupported storage dtype: {dtype_name}"
+        raise ValueError(msg)
+    return np.dtype(mapping[dtype_name])
+
+
+def _cache_shape_matches(shape_payload: dict[str, Any], expected: dict[str, Any]) -> bool:
+    for key, expected_value in expected.items():
+        if key not in shape_payload:
+            return False
+        cached_value = shape_payload.get(key)
+        if isinstance(expected_value, float):
+            try:
+                if not np.isclose(float(cached_value), expected_value, rtol=0.0, atol=1e-9):
+                    return False
+            except (TypeError, ValueError):
+                return False
+        else:
+            if cached_value != expected_value:
+                return False
+    return True
+
+
+def _write_failure_log(
+    *,
+    failure_log_path: str | Path | None,
+    attempted_problem_ids: list[int],
+    processed_problem_ids: list[int],
+    skipped_problem_ids: list[int],
+    skip_reasons: dict[str, str],
+    cache_reused: bool,
+) -> None:
+    if failure_log_path is None:
+        return
+
+    failure_file = Path(failure_log_path)
+    failure_file.parent.mkdir(parents=True, exist_ok=True)
+    with failure_file.open("w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "attempted_problem_ids": [int(problem_id) for problem_id in attempted_problem_ids],
+                "processed_problem_ids": [int(problem_id) for problem_id in processed_problem_ids],
+                "skipped_problem_ids": [int(problem_id) for problem_id in skipped_problem_ids],
+                "skip_reasons": skip_reasons,
+                "cache_reused": bool(cache_reused),
+            },
+            handle,
+            indent=2,
+            sort_keys=True,
+        )
 
 
 def get_transformer_layers(model: PreTrainedModel):
@@ -99,11 +158,41 @@ def load_model_and_tokenizer(
     if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name_or_path,
-        dtype=torch_dtype,
-        low_cpu_mem_usage=True,
-    )
+    model = None
+    primary_error: Exception | None = None
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name_or_path,
+            dtype=torch_dtype,
+            low_cpu_mem_usage=True,
+        )
+    except TypeError as exc:
+        primary_error = exc
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name_or_path,
+                torch_dtype=torch_dtype,
+                low_cpu_mem_usage=True,
+            )
+            warnings.warn(
+                (
+                    "Fell back to `torch_dtype` during model load after `dtype` "
+                    f"TypeError: {exc}"
+                ),
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        except Exception as fallback_exc:
+            msg = (
+                "Failed loading model with both dtype compatibility paths. "
+                f"dtype_error={primary_error!r}; torch_dtype_error={fallback_exc!r}"
+            )
+            raise RuntimeError(msg) from fallback_exc
+
+    if model is None:
+        msg = "Model load returned None unexpectedly"
+        raise RuntimeError(msg)
+
     model.eval()
     model.to(resolved_device)
     return model, tokenizer
@@ -179,14 +268,18 @@ def pool_sentence_embeddings(
 ) -> np.ndarray:
     """Mean-pool token activations per sentence span."""
     seq_len, hidden_dim = hidden_states.shape
+    if seq_len == 0:
+        msg = "Hidden states sequence length must be positive"
+        raise ValueError(msg)
     vectors = np.zeros((len(token_boundaries), hidden_dim), dtype=np.float32)
 
     for idx, (start, end) in enumerate(token_boundaries):
-        if start < 0 or end > seq_len:
-            msg = f"Token boundary ({start}, {end}) out of range for seq_len={seq_len}"
+        if start < 0 or start >= seq_len:
+            msg = f"Token boundary start {start} out of range for seq_len={seq_len}"
             raise ValueError(msg)
+        end = min(end, seq_len)
         if end <= start:
-            end = min(start + 1, seq_len)
+            end = start + 1
         vectors[idx] = hidden_states[start:end].mean(axis=0)
 
     return vectors
@@ -278,11 +371,14 @@ def extract_and_cache_embeddings(
     drop_last_chunk: bool,
     device: str,
     dtype_name: str,
+    pooling: str,
+    storage_dtype_name: str,
     embeddings_memmap_path: str | Path,
     embeddings_shape_path: str | Path,
     metadata_path: str | Path,
     skip_failed_problems: bool = False,
     failure_log_path: str | Path | None = None,
+    reuse_cache_if_valid: bool = False,
 ) -> dict[str, Any]:
     """Extract sentence vectors and save memmap plus metadata.
 
@@ -292,6 +388,86 @@ def extract_and_cache_embeddings(
     if not problem_ids:
         msg = "No problem IDs provided"
         raise ValueError(msg)
+
+    shape_file = Path(embeddings_shape_path)
+    metadata_file = Path(metadata_path)
+    memmap_file = Path(embeddings_memmap_path)
+    expected_cache_payload = {
+        "repo_id": repo_id,
+        "model_dir": model_dir,
+        "temp_dir": temp_dir,
+        "split_dir": split_dir,
+        "model_name_or_path": model_name_or_path,
+        "layer_mode": layer_mode,
+        "requested_layer_index": (
+            int(layer_index) if layer_index is not None else None
+        ),
+        "pooling": pooling,
+        "counterfactual_field": counterfactual_field,
+        "anchor_percentile": float(anchor_percentile),
+        "drop_last_chunk": bool(drop_last_chunk),
+        "dtype": storage_dtype_name,
+        "compute_dtype": dtype_name,
+    }
+    if (
+        reuse_cache_if_valid
+        and shape_file.exists()
+        and metadata_file.exists()
+        and memmap_file.exists()
+    ):
+        with shape_file.open("r", encoding="utf-8") as handle:
+            cached_shape = json.load(handle)
+        if _cache_shape_matches(cached_shape, expected_cache_payload):
+            metadata_df = pd.read_parquet(metadata_file, columns=["problem_id"])
+            available_problem_ids = set(
+                metadata_df["problem_id"].to_numpy(dtype=np.int64).tolist()
+            )
+            attempted_problem_ids = [int(problem_id) for problem_id in problem_ids]
+            processed_problem_ids = [
+                problem_id
+                for problem_id in attempted_problem_ids
+                if problem_id in available_problem_ids
+            ]
+            skipped_problem_ids = [
+                problem_id
+                for problem_id in attempted_problem_ids
+                if problem_id not in available_problem_ids
+            ]
+            skip_reasons = {
+                str(problem_id): "missing from reused cache metadata"
+                for problem_id in skipped_problem_ids
+            }
+
+            _write_failure_log(
+                failure_log_path=failure_log_path,
+                attempted_problem_ids=attempted_problem_ids,
+                processed_problem_ids=processed_problem_ids,
+                skipped_problem_ids=skipped_problem_ids,
+                skip_reasons=skip_reasons,
+                cache_reused=True,
+            )
+
+            if skipped_problem_ids and not skip_failed_problems:
+                summary = ", ".join(str(problem_id) for problem_id in skipped_problem_ids)
+                msg = (
+                    "Reused cache is missing requested problem IDs: "
+                    f"{summary}. "
+                    "Re-run scripts/extract_embeddings.py without --reuse-cache."
+                )
+                raise ValueError(msg)
+
+            return {
+                "rows": int(cached_shape["rows"]),
+                "hidden_dim": int(cached_shape["hidden_dim"]),
+                "layer_index": int(cached_shape["layer_index"]),
+                "metadata_path": str(metadata_file),
+                "embeddings_memmap": str(memmap_file),
+                "shape_path": str(shape_file),
+                "processed_problem_ids": processed_problem_ids,
+                "skipped_problem_ids": skipped_problem_ids,
+                "skip_reasons": skip_reasons,
+                "cache_reused": True,
+            }
 
     model, tokenizer = load_model_and_tokenizer(
         model_name_or_path=model_name_or_path,
@@ -355,27 +531,25 @@ def extract_and_cache_embeddings(
 
     total_rows = int(sum(len(frame) for frame in extracted_frames))
 
-    memmap_file = Path(embeddings_memmap_path)
     memmap_file.parent.mkdir(parents=True, exist_ok=True)
 
-    metadata_file = Path(metadata_path)
     metadata_file.parent.mkdir(parents=True, exist_ok=True)
 
-    shape_file = Path(embeddings_shape_path)
     shape_file.parent.mkdir(parents=True, exist_ok=True)
 
     frame_parts: list[pd.DataFrame] = []
     offset = 0
+    storage_dtype = resolve_numpy_dtype(storage_dtype_name)
     memmap = np.memmap(
         memmap_file,
-        dtype=np.float32,
+        dtype=storage_dtype,
         mode="w+",
         shape=(total_rows, hidden_dim),
     )
 
     for vectors, frame in zip(extracted_vectors, extracted_frames, strict=True):
         n_rows = len(frame)
-        memmap[offset : offset + n_rows] = vectors
+        memmap[offset : offset + n_rows] = vectors.astype(storage_dtype, copy=False)
         frame = frame.copy()
         frame["embedding_row"] = np.arange(offset, offset + n_rows, dtype=np.int64)
         frame_parts.append(frame)
@@ -389,32 +563,38 @@ def extract_and_cache_embeddings(
     metadata_df = pd.concat(frame_parts, ignore_index=True)
     metadata_df.to_parquet(metadata_file, index=False)
 
+    # Store provenance so training can detect stale caches after config changes.
     shape_payload = {
         "rows": int(total_rows),
         "hidden_dim": int(hidden_dim),
-        "dtype": "float32",
+        "dtype": storage_dtype_name,
         "layer_index": int(layer_idx),
+        "layer_mode": layer_mode,
+        "requested_layer_index": (
+            int(layer_index) if layer_index is not None else None
+        ),
+        "pooling": pooling,
+        "repo_id": repo_id,
+        "model_dir": model_dir,
+        "temp_dir": temp_dir,
+        "split_dir": split_dir,
+        "compute_dtype": dtype_name,
+        "counterfactual_field": counterfactual_field,
+        "anchor_percentile": float(anchor_percentile),
+        "drop_last_chunk": bool(drop_last_chunk),
+        "model_name_or_path": model_name_or_path,
     }
     with shape_file.open("w", encoding="utf-8") as handle:
         json.dump(shape_payload, handle, indent=2, sort_keys=True)
 
-    if failure_log_path is not None:
-        failure_file = Path(failure_log_path)
-        failure_file.parent.mkdir(parents=True, exist_ok=True)
-        with failure_file.open("w", encoding="utf-8") as handle:
-            json.dump(
-                {
-                    "attempted_problem_ids": [int(problem_id) for problem_id in problem_ids],
-                    "processed_problem_ids": [
-                        int(problem_id) for problem_id in processed_problem_ids
-                    ],
-                    "skipped_problem_ids": [int(problem_id) for problem_id in skipped_problem_ids],
-                    "skip_reasons": skip_reasons,
-                },
-                handle,
-                indent=2,
-                sort_keys=True,
-            )
+    _write_failure_log(
+        failure_log_path=failure_log_path,
+        attempted_problem_ids=[int(problem_id) for problem_id in problem_ids],
+        processed_problem_ids=[int(problem_id) for problem_id in processed_problem_ids],
+        skipped_problem_ids=[int(problem_id) for problem_id in skipped_problem_ids],
+        skip_reasons=skip_reasons,
+        cache_reused=False,
+    )
 
     return {
         "rows": total_rows,
@@ -426,6 +606,7 @@ def extract_and_cache_embeddings(
         "processed_problem_ids": processed_problem_ids,
         "skipped_problem_ids": skipped_problem_ids,
         "skip_reasons": skip_reasons,
+        "cache_reused": False,
     }
 
 
@@ -436,9 +617,10 @@ def load_cached_embeddings(
     """Load cached memmap embeddings."""
     with Path(embeddings_shape_path).open("r", encoding="utf-8") as handle:
         shape_payload = json.load(handle)
+    storage_dtype = resolve_numpy_dtype(shape_payload.get("dtype", "float32"))
     return np.memmap(
         embeddings_memmap_path,
-        dtype=np.float32,
+        dtype=storage_dtype,
         mode="r",
         shape=(shape_payload["rows"], shape_payload["hidden_dim"]),
     )
