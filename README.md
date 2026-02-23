@@ -5,13 +5,30 @@ Train sentence probes that predict counterfactual sentence importance from model
 ## What You'll Do
 - Load the ARENA Thought Anchors rollout dataset from Hugging Face.
 - Build sentence labels from `counterfactual_importance_accuracy`.
-- Extract one-layer sentence embeddings with mean pooling.
-- Train position, text-only, activation-only, and activation+position probes.
+- Extract one-layer sentence embeddings with mean pooling (default) or token-level ragged spans.
+- Optionally extract sentence-level vertical attention scores with depth control (`off` / `light` / `full`).
+- Train position, text-only, activation-only, activation+position, and vertical-attention baselines.
+- Train token-aware `attention_probe` and `multimax_probe` when `activations.pooling: tokens`.
+- Simulate cascade/deferral thresholds to plan efficient future labeling.
 - Report top-k recall and precision-recall AUC.
 
 ## Why This Matters
 This setup gives a cheap first test for Thought Anchor signal.
-You can validate signal before harder token-aware probes.
+But sparse token-local evidence can be diluted by sentence-level averaging on long contexts.
+Token-aware aggregation lets probes focus on the few relevant tokens instead of washing them out.
+
+## Multi-token Probe Motivation
+- Mean pooling can erase sparse signal: if only a few tokens carry anchor evidence, averaging over many neutral tokens shrinks the signal.
+- Attention probes score transformed token activations per head and compute a weighted sum of per-token values.
+- MultiMax replaces softmax averaging with per-head hard max over tokens, reducing long-context dilution.
+- This PR-level design follows `Building Production-Ready Probes For Gemini` and Neel Nanda's repeated warning that tokenization-level confounds make fragile single-token interpretations easy to overread.
+- The receiver-head/vertical-attention framing is aligned with ARENA-style interpretability workflows and the Thought Anchors analysis.
+- References:
+  - Kramár et al. (2026), *Building Production-Ready Probes For Gemini*: https://arxiv.org/abs/2601.11516
+  - Neel Nanda (2024), tokenization confound cautionary example: https://www.neelnanda.io/mechanistic-interpretability/emergent-pos
+  - Neel Nanda interview (2025), probe-utility caution in deployment contexts: https://80000hours.org/podcast/episodes/neel-nanda-mechanistic-interpretability/
+  - ARENA Chapter 1 (transformer interpretability tutorials): https://github.com/callummcdougall/ARENA_3.0/tree/main/chapter1_transformer_interp
+  - *Thought Anchors: Which LLM Reasoning Steps Matter?* (receiver heads and vertical attention): https://openreview.net/pdf/e2eb4189bc2250be1718a88fcb63c2423b280109.pdf
 
 ## Technical Requirements
 - Python 3.10 or newer.
@@ -52,18 +69,26 @@ python scripts/check_spans.py --config configs/experiment.yaml --problem-id 330 
 pip install -e ".[verify]"
 python scripts/verify_problem_labels.py --config configs/experiment.yaml --problem-id 330 --counterfactual
 ```
+- Estimate disk usage for extracted activations (including ragged token mode).
+```bash
+python scripts/estimate_storage.py \
+  --shape-json artifacts/runs/pilot/sentence_embeddings_shape.json \
+  --metadata-parquet artifacts/runs/pilot/sentence_metadata.parquet
+```
 
 ## MacBook Tips
 - Start with `num_problems: 25` in `configs/experiment.yaml`.
-- Keep `layer_mode: mid` and `pooling: mean`.
+- Keep `layer_mode: mid` and `pooling: mean` for low-memory runs.
 - Use `device: auto` to select MPS when available.
 - Avoid loading full rollouts except one verification problem.
 
 ## Output Files
 - `artifacts/runs/pilot/sentence_embeddings.dat`
+- `artifacts/runs/pilot/token_embeddings.dat` (when `activations.pooling: tokens`)
 - `artifacts/runs/pilot/metrics_seed_*.json`
 - `artifacts/runs/pilot/aggregate_metrics.json`
 - `artifacts/runs/full/sentence_embeddings.dat`
+- `artifacts/runs/full/token_embeddings.dat` (when `activations.pooling: tokens`)
 - `artifacts/runs/full/metrics_seed_*.json`
 - `artifacts/runs/full/aggregate_metrics.json`
 
@@ -74,8 +99,49 @@ python scripts/verify_problem_labels.py --config configs/experiment.yaml --probl
 - `scripts/extract_embeddings.py --reuse-cache` skips extraction only when cache provenance matches the active config.
 - Implementation details for maintainers: `docs/cache_provenance_guardrail.md`.
 
+## Vertical Attention Baseline
+- Vertical score definition: aggregate how strongly later tokens attend to each sentence span.
+- `depth_control: true` normalizes by the number of later queries so early sentences are not over-favored just because they have more future tokens.
+- Modes:
+  - `light`: attention from only the final `N` reasoning tokens.
+  - `full`: full sentence-to-sentence attention when `seq_len <= full_max_seq_len`; otherwise light fallback.
+- Config snippet:
+```yaml
+activations:
+  vertical_attention:
+    mode: light
+    depth_control: true
+    light_last_n_tokens: 4
+    full_max_seq_len: 1024
+```
+- When vertical scores are extracted, training adds:
+  - `vertical_attention_baseline`
+  - `vertical_attention_plus_position`
+
+## Deferral Planning
+- `scripts/plan_deferrals.py` tunes two thresholds on validation scores:
+  - `score <= t_neg` => confident negative
+  - `score >= t_pos` => confident positive
+  - otherwise => defer
+- Objectives:
+  - `budget`: minimize accepted-set error subject to a max deferral budget.
+  - `error`: minimize deferral while meeting a target accepted-set error.
+- `scripts/train_probes.py` predictions now include `split` (`val` / `test`) so one parquet can drive tuning + projection directly.
+- Example:
+```bash
+python scripts/plan_deferrals.py \
+  --predictions artifacts/scaling/qwen_correct/predictions_seed_0.parquet \
+  --score-column score_linear_probe \
+  --objective budget \
+  --deferral-budget 0.20 \
+  --output artifacts/scaling/qwen_correct/deferral_plan_seed_0.json
+```
+
 ## High-Confidence Scaling Matrix
 - 4-setting configs are available under `configs/scaling_*.yaml`.
+- Primary metric is target-mode aware for selection and LOPO deltas:
+  - `anchor_binary` -> `pr_auc`
+  - `importance_abs` / `importance_signed` -> `spearman`
 - Default matrix run executes the full four-setting replication grid:
 ```bash
 python scripts/run_scaling_grid.py
@@ -105,13 +171,19 @@ python -c "import torch, transformers; print(torch.__version__, transformers.__v
 - `src/ta_probe/data_loading.py`: dataset listing and fast metadata loading.
 - `src/ta_probe/labels.py`: anchor labels from counterfactual scores.
 - `src/ta_probe/spans.py`: chunking and sentence token boundaries.
-- `src/ta_probe/activations.py`: one-layer hooks and pooled embeddings.
-- `src/ta_probe/models.py`: baseline and probe models.
+- `src/ta_probe/activations.py`: one-layer hooks, pooled embeddings, and ragged token storage.
+- `src/ta_probe/models.py`: sklearn baselines and mean-pooled probes.
+- `src/ta_probe/token_probes.py`: torch attention and MultiMax token-level probes.
+- `src/ta_probe/deferrals.py`: threshold tuning and projection for deferral simulation.
+- `src/ta_probe/storage.py`: activation cache disk-usage estimation helpers.
 - `src/ta_probe/train.py`: training, evaluation, and tripwire checks.
 - `src/ta_probe/aggregate.py`: multi-seed metric aggregation.
 - `src/ta_probe/readme_update.py`: deterministic README marker updates.
 - `scripts/run_experiments.py`: end-to-end pilot + full orchestration.
 - `scripts/run_scaling_grid.py`: four-setting scaling matrix orchestration.
+- `scripts/plan_deferrals.py`: cascade/deferral simulation from saved prediction scores.
+- `scripts/estimate_storage.py`: disk usage estimates from extracted metadata.
+- `docs/why_mean_pooling_can_erase_sparse_signal.md`: mean-pooling dilution and MultiMax rationale.
 - `tests/`: unit tests for spans, labels, and metrics.
 
 ## Experiment Results
@@ -268,60 +340,6 @@ Run the full Thought Anchor probe plan with pilot and full stages.
 
 ## Scaling Grid Results
 
-Four-setting replication matrix run on an NVIDIA L40S (44.4 GB VRAM), 5 seeds per setting, 20 shared problems (train=14, val=3, test=3).
-
-### Summary
-
-| Setting | Best Model | Mean PR-AUC | Spearman |
-|---|---|---:|---:|
-| Llama-8B correct | mlp_probe | 0.1682 | 0.2545 |
-| Llama-8B incorrect | position_baseline | 0.1892 | 0.2155 |
-| Qwen-14B correct | position_baseline | 0.1801 | 0.4799 |
-| Qwen-14B incorrect | mlp_probe | 0.1411 | 0.1520 |
-
-### Per-Setting Model Comparison (Test Set, 5-seed mean)
-
-#### Llama-8B Correct
-| Model | PR-AUC | std | Spearman |
-|---|---:|---:|---:|
-| mlp_probe | 0.1682 | 0.0202 | 0.2545 |
-| activations_plus_position | 0.1679 | 0.0000 | 0.2250 |
-| linear_probe | 0.1664 | 0.0000 | 0.2157 |
-| position_baseline | 0.1625 | 0.0000 | 0.5125 |
-| text_only_baseline | 0.1032 | 0.0000 | -0.0135 |
-
-#### Llama-8B Incorrect
-| Model | PR-AUC | std | Spearman |
-|---|---:|---:|---:|
-| position_baseline | 0.1892 | 0.0000 | 0.2155 |
-| activations_plus_position | 0.1319 | 0.0000 | -0.0171 |
-| linear_probe | 0.1272 | 0.0000 | -0.0330 |
-| mlp_probe | 0.1265 | 0.0122 | 0.0573 |
-| text_only_baseline | 0.0998 | 0.0000 | -0.0367 |
-
-#### Qwen-14B Correct
-| Model | PR-AUC | std | Spearman |
-|---|---:|---:|---:|
-| position_baseline | 0.1801 | 0.0000 | 0.4799 |
-| mlp_probe | 0.1436 | 0.0272 | 0.2601 |
-| activations_plus_position | 0.1190 | 0.0000 | 0.1773 |
-| linear_probe | 0.1187 | 0.0000 | 0.1703 |
-| text_only_baseline | 0.0961 | 0.0000 | 0.0876 |
-
-#### Qwen-14B Incorrect
-| Model | PR-AUC | std | Spearman |
-|---|---:|---:|---:|
-| mlp_probe | 0.1411 | 0.0083 | 0.1520 |
-| linear_probe | 0.1249 | 0.0000 | 0.0591 |
-| activations_plus_position | 0.1249 | 0.0000 | 0.0594 |
-| text_only_baseline | 0.1186 | 0.0000 | 0.0960 |
-| position_baseline | 0.1107 | 0.0000 | 0.1379 |
-
-### Bootstrap CI: activations_plus_position vs Baselines
-
-| Setting | vs position_baseline (delta) | CI excludes 0 | vs text_only_baseline (delta) | CI excludes 0 |
-|---|---:|---|---:|---|
-| Llama-8B correct | +0.0070 | 0/5 seeds | +0.0628 | 5/5 seeds |
-| Llama-8B incorrect | -0.0560 | 5/5 seeds | +0.0289 | 0/5 seeds |
-| Qwen-14B correct | -0.0768 | 0/5 seeds | +0.0240 | 0/5 seeds |
-| Qwen-14B incorrect | +0.0116 | 5/5 seeds | +0.0133 | 0/5 seeds |
+<!-- SCALING_RESULTS_START -->
+Run `python scripts/run_scaling_grid.py --readme-path README.md` to refresh this section.
+<!-- SCALING_RESULTS_END -->

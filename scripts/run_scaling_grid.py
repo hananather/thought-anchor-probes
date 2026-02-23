@@ -22,6 +22,7 @@ from ta_probe.data_loading import (
     sample_problem_ids,
     write_json,
 )
+from ta_probe.readme_update import update_readme_scaling_results
 
 DEFAULT_CONFIGS = [
     "configs/scaling_llama_correct.yaml",
@@ -44,11 +45,23 @@ PARITY_FIELDS = (
     ("training", "token_probe_heads"),
     ("training", "token_probe_mlp_width"),
     ("training", "token_probe_mlp_depth"),
+    ("training", "token_probe_batch_size"),
+    ("training", "token_probe_max_epochs"),
+    ("training", "token_probe_patience"),
+    ("training", "token_probe_learning_rate"),
+    ("training", "token_probe_weight_decay"),
+    ("training", "token_probe_continuous_loss"),
+    ("training", "token_probe_device"),
     ("activations", "vertical_attention", "mode"),
     ("activations", "vertical_attention", "depth_control"),
     ("activations", "vertical_attention", "light_last_n_tokens"),
     ("activations", "vertical_attention", "full_max_seq_len"),
 )
+PRIMARY_METRIC_COLUMN_BY_NAME = {
+    "pr_auc": "pr_auc",
+    "spearman": "spearman_mean",
+}
+PRIMARY_METRIC_NAME_BY_COLUMN = {value: key for key, value in PRIMARY_METRIC_COLUMN_BY_NAME.items()}
 
 
 def _sanitize_cache_component(value: str) -> str:
@@ -149,6 +162,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable extraction cache reuse checks.",
     )
+    parser.add_argument(
+        "--readme-path",
+        default=None,
+        help=(
+            "Optional README path to update with generated scaling summary "
+            "between SCALING_RESULTS markers."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -196,6 +217,53 @@ def _parse_last_json(text: str) -> dict[str, Any]:
     raise ValueError(msg)
 
 
+def _normalize_primary_metric_name(metric_name: Any) -> str:
+    normalized = str(metric_name) if metric_name is not None else "pr_auc"
+    if normalized in PRIMARY_METRIC_COLUMN_BY_NAME:
+        return normalized
+    if normalized in PRIMARY_METRIC_NAME_BY_COLUMN:
+        return PRIMARY_METRIC_NAME_BY_COLUMN[normalized]
+    return "pr_auc"
+
+
+def _primary_metric_column(metric_name: str) -> str:
+    return PRIMARY_METRIC_COLUMN_BY_NAME[_normalize_primary_metric_name(metric_name)]
+
+
+def _resolve_primary_metric_name(payload: dict[str, Any]) -> str:
+    metric_name = payload.get("primary_metric_name", payload.get("primary_metric", "pr_auc"))
+    return _normalize_primary_metric_name(metric_name)
+
+
+def _resolve_primary_metric_column(payload: dict[str, Any]) -> str:
+    return _primary_metric_column(_resolve_primary_metric_name(payload))
+
+
+def _extract_best_metric_means(
+    *,
+    summary_rows: list[dict[str, Any]],
+    best_model: str | None,
+    primary_metric: str,
+) -> tuple[float, float]:
+    """Return (best_primary_metric_mean, best_pr_auc_mean) for the selected best model."""
+    if not best_model:
+        return float("nan"), float("nan")
+    metric_column = _primary_metric_column(primary_metric)
+    metric_keys = [f"{metric_column}_mean", metric_column]
+    for row in summary_rows:
+        if row.get("model") == best_model:
+            best_primary_metric = float("nan")
+            for key in metric_keys:
+                if key in row:
+                    best_primary_metric = float(row.get(key, float("nan")))
+                    break
+            if best_primary_metric != best_primary_metric:
+                best_primary_metric = float(row.get("pr_auc_mean", float("nan")))
+            best_pr_auc = float(row.get("pr_auc_mean", float("nan")))
+            return best_primary_metric, best_pr_auc
+    return float("nan"), float("nan")
+
+
 def _write_markdown_summary(
     *,
     output_path: Path,
@@ -210,23 +278,26 @@ def _write_markdown_summary(
     ]
     if {"train", "val", "test"}.issubset(shared_splits.keys()):
         lines.append(
-            (
-                f"- Shared splits: train={len(shared_splits['train'])}, "
-                f"val={len(shared_splits['val'])}, test={len(shared_splits['test'])}"
-            )
+            f"- Shared splits: train={len(shared_splits['train'])}, "
+            f"val={len(shared_splits['val'])}, test={len(shared_splits['test'])}"
         )
     else:
         lines.append(f"- LOPO folds: {len(shared_splits)}")
     lines.extend(
         [
             "",
-            "| Setting | Best model | Primary metric | Mean primary metric (best) | CI rows | Storage estimate |",
+            (
+                "| Setting | Best model | Primary metric | Mean primary metric (best) "
+                "| CI rows | Storage estimate |"
+            ),
             "|---|---|---|---:|---:|---:|",
         ]
     )
     for item in per_setting:
         best_model = item.get("best_model")
-        primary_metric = str(item.get("primary_metric", "pr_auc"))
+        primary_metric = _normalize_primary_metric_name(
+            item.get("primary_metric_name", item.get("primary_metric", "pr_auc"))
+        )
         best_primary = float(
             item.get(
                 "best_primary_metric_mean",
@@ -242,6 +313,25 @@ def _write_markdown_summary(
     lines.append("")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _resolve_repo_relative_path(path_value: str, repo_root: Path) -> Path:
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+    return repo_root / path
+
+
+def _update_scaling_readme(
+    *,
+    repo_root: Path,
+    readme_path: str,
+    summary_markdown_path: Path,
+) -> Path:
+    resolved_readme_path = _resolve_repo_relative_path(readme_path, repo_root)
+    summary_markdown = summary_markdown_path.read_text(encoding="utf-8")
+    update_readme_scaling_results(resolved_readme_path, summary_markdown)
+    return resolved_readme_path
 
 
 def main() -> None:
@@ -367,23 +457,22 @@ def main() -> None:
             best_model = aggregate_payload.get("best_model_by_primary_metric")
             if best_model is None:
                 best_model = aggregate_payload.get("best_model_by_mean_pr_auc")
-            primary_metric = str(aggregate_payload.get("primary_metric", "pr_auc"))
-            metric_key = f"{primary_metric}_mean"
-            best_primary_metric = float("nan")
-            for row in summary_by_model:
-                if row.get("model") == best_model:
-                    best_primary_metric = float(
-                        row.get(metric_key, row.get("pr_auc_mean", float("nan")))
-                    )
-                    break
+            primary_metric_name = _resolve_primary_metric_name(aggregate_payload)
+            primary_metric_column = _resolve_primary_metric_column(aggregate_payload)
+            best_primary_metric, best_pr_auc = _extract_best_metric_means(
+                summary_rows=summary_by_model,
+                best_model=(str(best_model) if best_model is not None else None),
+                primary_metric=primary_metric_name,
+            )
             per_setting_summary.append(
                 {
                     "setting": setting_name,
                     "run_root": str(run_root),
                     "best_model": best_model,
-                    "primary_metric": primary_metric,
+                    "primary_metric_name": primary_metric_name,
+                    "primary_metric": primary_metric_column,
                     "best_primary_metric_mean": best_primary_metric,
-                    "best_pr_auc_mean": best_primary_metric,
+                    "best_pr_auc_mean": best_pr_auc,
                     "num_ci_records": len(aggregate_payload.get("ci_records", [])),
                     "num_runs": int(aggregate_payload.get("num_runs", 0)),
                     "storage_total_human": storage_estimate.get("total_human"),
@@ -416,23 +505,39 @@ def main() -> None:
                 for row in aggregate_payload.get("fold_aggregate_by_model", [])
                 if row.get("agg_type") == "mean_seeds"
             ]
-            primary_metric = str(aggregate_payload.get("primary_metric", "pr_auc"))
-            metric_key = f"{primary_metric}_mean"
-            best_model = None
-            best_primary_metric = float("nan")
-            for row in summary_rows:
-                primary_value = float(row.get(metric_key, row.get("pr_auc_mean", float("nan"))))
-                if best_model is None or primary_value > best_primary_metric:
-                    best_model = row.get("model")
-                    best_primary_metric = primary_value
+            primary_metric_name = _resolve_primary_metric_name(aggregate_payload)
+            primary_metric_column = _resolve_primary_metric_column(aggregate_payload)
+            metric_key = (
+                primary_metric_column
+                if primary_metric_column.endswith("_mean")
+                else f"{primary_metric_column}_mean"
+            )
+            best_model = aggregate_payload.get("best_model_by_primary_metric")
+            best_primary_metric = float("-inf")
+            if best_model is None:
+                for row in summary_rows:
+                    primary_value = float(row.get(metric_key, row.get("pr_auc_mean", float("nan"))))
+                    if primary_value != primary_value:
+                        continue
+                    if best_model is None or primary_value > best_primary_metric:
+                        best_model = row.get("model")
+                        best_primary_metric = primary_value
+            if best_model is None and summary_rows:
+                best_model = summary_rows[0].get("model")
+            best_primary_metric, best_pr_auc = _extract_best_metric_means(
+                summary_rows=summary_rows,
+                best_model=(str(best_model) if best_model is not None else None),
+                primary_metric=primary_metric_name,
+            )
             per_setting_summary.append(
                 {
                     "setting": setting_name,
                     "run_root": str(run_root),
                     "best_model": best_model,
-                    "primary_metric": primary_metric,
+                    "primary_metric_name": primary_metric_name,
+                    "primary_metric": primary_metric_column,
                     "best_primary_metric_mean": best_primary_metric,
-                    "best_pr_auc_mean": best_primary_metric,
+                    "best_pr_auc_mean": best_pr_auc,
                     "num_ci_records": len(aggregate_payload.get("paired_delta_records", [])),
                     "num_runs": int(aggregate_payload.get("num_folds", 0)),
                 }
@@ -445,6 +550,13 @@ def main() -> None:
         shared_splits=shared_splits,
         per_setting=per_setting_summary,
     )
+    updated_readme_path: Path | None = None
+    if args.readme_path:
+        updated_readme_path = _update_scaling_readme(
+            repo_root=repo_root,
+            readme_path=args.readme_path,
+            summary_markdown_path=markdown_path,
+        )
 
     summary = {
         "shared_problem_ids_path": str(shared_ids_path),
@@ -454,6 +566,8 @@ def main() -> None:
         "settings": per_setting_summary,
         "summary_markdown": str(markdown_path),
     }
+    if updated_readme_path is not None:
+        summary["readme_path"] = str(updated_readme_path)
     print(json.dumps(summary, indent=2, sort_keys=True))
 
 
