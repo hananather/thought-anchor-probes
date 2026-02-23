@@ -1,0 +1,64 @@
+dataset:
+  repo_id: uzaymacar/math-rollouts
+  model_dir: deepseek-r1-distill-qwen-14b
+  temp_dir: temperature_0.6_top_p_0.95
+  split_dir: correct_base_solution_forced_answer
+  forced_split_dir: correct_base_solution_forced_answer
+  num_problems: 9999
+  seed: 0
+labels:
+  counterfactual_field: counterfactual_importance_accuracy
+  anchor_percentile: 90.0
+  drop_last_chunk: false
+  target_mode: anchor_binary
+activations:
+  model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
+  layer_mode: mid
+  layer_index: null
+  pooling: tokens
+  dtype: float16
+  storage_dtype: float16
+  device: auto
+  batch_size: 1
+  vertical_attention:
+    mode: 'off'
+    depth_control: true
+    light_last_n_tokens: 1
+    full_max_seq_len: 1024
+training:
+  train_fraction: 0.7
+  val_fraction: 0.15
+  test_fraction: 0.15
+  random_seed: 0
+  k_values:
+  - 5
+  - 10
+  mlp_hidden_dim: 100
+  mlp_max_iter: 300
+  bootstrap_iterations: 2000
+  bootstrap_seed: null
+  position_bins: 5
+  best_of_k: 1
+  residualize_against: position_plus_text
+  token_probe_heads: 4
+  token_probe_mlp_width: 128
+  token_probe_mlp_depth: 1
+  token_probe_batch_size: 32
+  token_probe_max_epochs: 50
+  token_probe_patience: 5
+  token_probe_learning_rate: 0.001
+  token_probe_weight_decay: 0.0
+  token_probe_continuous_loss: huber
+  token_probe_device: auto
+split:
+  strategy: lopo_cv
+paths:
+  problem_ids_json: /workspace/thought-anchor-probes/artifacts/sweeps/qwen_ultra/runs/stage1/stage1_57b4631e7a29/problem_ids.json
+  splits_json: /workspace/thought-anchor-probes/artifacts/sweeps/qwen_ultra/runs/stage1/stage1_57b4631e7a29/folds.json
+  embeddings_memmap: /workspace/thought-anchor-probes/artifacts/sweeps/qwen_ultra/runs/stage1/stage1_57b4631e7a29/sentence_embeddings.dat
+  token_embeddings_memmap: /workspace/thought-anchor-probes/artifacts/sweeps/qwen_ultra/runs/stage1/stage1_57b4631e7a29/token_embeddings.dat
+  embeddings_shape_json: /workspace/thought-anchor-probes/artifacts/sweeps/qwen_ultra/runs/stage1/stage1_57b4631e7a29/sentence_embeddings_shape.json
+  metadata_parquet: /workspace/thought-anchor-probes/artifacts/sweeps/qwen_ultra/runs/stage1/stage1_57b4631e7a29/sentence_metadata.parquet
+  metrics_json: /workspace/thought-anchor-probes/artifacts/sweeps/qwen_ultra/runs/stage1/stage1_57b4631e7a29/metrics.json
+  predictions_parquet: /workspace/thought-anchor-probes/artifacts/sweeps/qwen_ultra/runs/stage1/stage1_57b4631e7a29/predictions.parquet
+  report_md: /workspace/thought-anchor-probes/artifacts/sweeps/qwen_ultra/runs/stage1/stage1_57b4631e7a29/report.md
