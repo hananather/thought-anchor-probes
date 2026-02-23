@@ -169,6 +169,33 @@ python -c "import torch, transformers; print(torch.__version__, transformers.__v
 - Expected preflight versions: `2.9.1 4.57.3`.
 - RunPod execution guide: `docs/runpod_scaling_runbook.md`.
 
+## Systematic Sweep Campaign
+- For large GPU-backed campaigns, use the staged sweep tooling:
+  - `scripts/generate_sweep_configs.py`: generate Stage-1/2/3 config manifests.
+  - `scripts/run_systematic_sweep.py`: execute manifest entries with retry + resume.
+  - `scripts/summarize_sweep.py`: produce global leaderboards and shortlist files.
+- Suggested flow:
+```bash
+python scripts/generate_sweep_configs.py \
+  --base-config configs/scaling_qwen_correct.yaml \
+  --sweep-root artifacts/sweeps/qwen_ultra \
+  --stage stage1 --num-layers 40 \
+  --seeds 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 \
+  --reuse-cache --skip-failed
+
+python scripts/run_systematic_sweep.py \
+  --sweep-root artifacts/sweeps/qwen_ultra \
+  --manifest artifacts/sweeps/qwen_ultra/manifest_stage1.jsonl \
+  --retries 1 --continue-on-error
+
+python scripts/summarize_sweep.py \
+  --sweep-root artifacts/sweeps/qwen_ultra \
+  --stage2-top-n-per-target-mode 24 \
+  --stage3-top-n 12
+```
+- Detailed runbook: `docs/systematic_sweep_runbook.md`.
+- Current execution snapshot and handoff notes: `docs/repo_status_2026-02-23.md`.
+
 ## Repo Layout
 - `src/ta_probe/data_loading.py`: dataset listing and fast metadata loading.
 - `src/ta_probe/labels.py`: anchor labels from counterfactual scores.
@@ -183,9 +210,14 @@ python -c "import torch, transformers; print(torch.__version__, transformers.__v
 - `src/ta_probe/readme_update.py`: deterministic README marker updates.
 - `scripts/run_experiments.py`: end-to-end pilot + full orchestration.
 - `scripts/run_scaling_grid.py`: four-setting scaling matrix orchestration.
+- `scripts/generate_sweep_configs.py`: Stage-1/2/3 config and manifest generation.
+- `scripts/run_systematic_sweep.py`: resumable execution over generated sweep manifests.
+- `scripts/summarize_sweep.py`: sweep-wide leaderboard, deltas, stability, and shortlists.
 - `scripts/plan_deferrals.py`: cascade/deferral simulation from saved prediction scores.
 - `scripts/estimate_storage.py`: disk usage estimates from extracted metadata.
 - `docs/why_mean_pooling_can_erase_sparse_signal.md`: mean-pooling dilution and MultiMax rationale.
+- `docs/systematic_sweep_runbook.md`: operations guide for large staged Qwen sweeps.
+- `docs/repo_status_2026-02-23.md`: current implementation/runtime status snapshot for replanning.
 - `tests/`: unit tests for spans, labels, and metrics.
 
 ## Experiment Results

@@ -153,3 +153,13 @@ def test_update_scaling_readme_replaces_marker_block(tmp_path: Path) -> None:
     assert updated_path == readme_path
     assert "# Scaling Matrix Summary" in updated
     assert "old content" not in updated
+
+
+def test_parse_args_supports_no_tripwires_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_scaling_module()
+    monkeypatch.setattr(
+        "sys.argv",
+        ["run_scaling_grid.py", "--configs", "configs/scaling_qwen_correct.yaml", "--no-tripwires"],
+    )
+    args = module.parse_args()
+    assert args.no_tripwires is True

@@ -163,6 +163,11 @@ def parse_args() -> argparse.Namespace:
         help="Disable extraction cache reuse checks.",
     )
     parser.add_argument(
+        "--no-tripwires",
+        action="store_true",
+        help="Skip random-label and overfit-one-problem tripwire checks during training.",
+    )
+    parser.add_argument(
         "--readme-path",
         default=None,
         help=(
@@ -422,20 +427,20 @@ def main() -> None:
             storage_estimate = extraction_payload.get("storage_estimate", {})
 
             for seed in args.seeds:
+                train_command = [
+                    "python",
+                    "scripts/train_probes.py",
+                    "--config",
+                    str(config_path),
+                    "--seed",
+                    str(seed),
+                    "--run-name",
+                    f"seed_{seed}",
+                ]
+                if args.no_tripwires:
+                    train_command.append("--no-tripwires")
                 command_log.append(
-                    _run(
-                        [
-                            "python",
-                            "scripts/train_probes.py",
-                            "--config",
-                            str(config_path),
-                            "--seed",
-                            str(seed),
-                            "--run-name",
-                            f"seed_{seed}",
-                        ],
-                        cwd=repo_root,
-                    )
+                    _run(train_command, cwd=repo_root)
                 )
 
             command_log.append(
@@ -497,6 +502,8 @@ def main() -> None:
             ]
             if not args.no_reuse_cache:
                 lopo_command.append("--reuse-cache")
+            if args.no_tripwires:
+                lopo_command.append("--no-tripwires")
             command_log.append(_run(lopo_command, cwd=repo_root))
 
             aggregate_payload = _load_json(run_root / "aggregate_lopo_metrics.json")
