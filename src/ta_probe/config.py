@@ -27,6 +27,9 @@ class LabelConfig(BaseModel):
     counterfactual_field: str = "counterfactual_importance_accuracy"
     anchor_percentile: float = 90.0
     drop_last_chunk: bool = True
+    target_mode: Literal["anchor_binary", "importance_abs", "importance_signed"] = (
+        "anchor_binary"
+    )
 
     @field_validator("anchor_percentile")
     @classmethod
@@ -64,6 +67,7 @@ class TrainingConfig(BaseModel):
     bootstrap_seed: int | None = None
     position_bins: int = 5
     best_of_k: int = 1
+    residualize_against: Literal["none", "position", "position_plus_text"] = "none"
 
     @field_validator("train_fraction", "val_fraction", "test_fraction")
     @classmethod

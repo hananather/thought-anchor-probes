@@ -38,6 +38,8 @@ PARITY_FIELDS = (
     ("training", "k_values"),
     ("training", "best_of_k"),
     ("split", "strategy"),
+    ("labels", "target_mode"),
+    ("training", "residualize_against"),
 )
 
 

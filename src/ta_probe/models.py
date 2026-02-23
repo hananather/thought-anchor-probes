@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -112,3 +113,66 @@ def predict_scores(model: Pipeline, features: np.ndarray) -> np.ndarray:
     """Return probability scores from a fitted classifier."""
     probs = model.predict_proba(features)
     return probs[:, 1].astype(np.float32)
+
+
+def predict_values(model: Pipeline, features: np.ndarray) -> np.ndarray:
+    """Return predicted values from a fitted regressor or classifier."""
+    if hasattr(model, "predict_proba"):
+        return predict_scores(model, features)
+    preds = model.predict(features)
+    return np.asarray(preds, dtype=np.float32)
+
+
+def make_position_regressor() -> Pipeline:
+    """Ridge regressor using only position features."""
+    return Pipeline(steps=[("scaler", StandardScaler()), ("reg", Ridge(alpha=1.0))])
+
+
+def make_text_regressor() -> Pipeline:
+    """Ridge regressor using TF-IDF text features."""
+    return Pipeline(
+        steps=[
+            ("tfidf", TfidfVectorizer(ngram_range=(1, 2), min_df=1, max_features=10000)),
+            ("reg", Ridge(alpha=1.0)),
+        ]
+    )
+
+
+def make_position_text_regressor() -> Pipeline:
+    """Ridge regressor using both text and position features."""
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("text", TfidfVectorizer(ngram_range=(1, 2), min_df=1, max_features=10000), "chunk_text"),
+            ("position", StandardScaler(), POSITION_FEATURE_COLUMNS),
+        ],
+        sparse_threshold=0.3,
+    )
+    return Pipeline(steps=[("features", preprocessor), ("reg", Ridge(alpha=1.0))])
+
+
+def make_linear_regressor() -> Pipeline:
+    """Linear regressor on mean-pooled sentence embeddings."""
+    return Pipeline(steps=[("scaler", StandardScaler()), ("reg", Ridge(alpha=1.0))])
+
+
+def make_mlp_regressor(hidden_dim: int, max_iter: int, random_seed: int) -> Pipeline:
+    """Two-layer MLP regressor on sentence embeddings."""
+    return Pipeline(
+        steps=[
+            ("scaler", StandardScaler(with_mean=True, with_std=True)),
+            (
+                "reg",
+                MLPRegressor(
+                    hidden_layer_sizes=(hidden_dim, hidden_dim),
+                    activation="relu",
+                    solver="adam",
+                    alpha=1e-4,
+                    learning_rate_init=1e-3,
+                    max_iter=max_iter,
+                    early_stopping=True,
+                    n_iter_no_change=20,
+                    random_state=random_seed,
+                ),
+            ),
+        ]
+    )

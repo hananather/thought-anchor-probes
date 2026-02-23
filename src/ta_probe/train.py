@@ -12,16 +12,23 @@ import pandas as pd
 from ta_probe.metrics import (
     bootstrap_pr_auc_delta_by_group,
     evaluate_frame,
+    mean_problem_spearman,
     pr_auc_by_position_bins,
     precision_recall_auc,
 )
 from ta_probe.models import (
     build_position_features,
     build_text_features,
+    make_linear_regressor,
     make_linear_probe,
     make_mlp_probe,
+    make_mlp_regressor,
+    make_position_regressor,
     make_position_baseline,
+    make_position_text_regressor,
+    make_text_regressor,
     make_text_baseline,
+    predict_values,
     predict_scores,
 )
 
@@ -159,18 +166,93 @@ def _concat_features(left: np.ndarray, right: np.ndarray) -> np.ndarray:
     return np.concatenate([left, right], axis=1).astype(np.float32, copy=False)
 
 
-def _fit_and_score(
+def _resolve_target_col(target_mode: str) -> str:
+    if target_mode == "anchor_binary":
+        return "anchor"
+    if target_mode == "importance_abs":
+        return "importance_score"
+    if target_mode == "importance_signed":
+        return "importance_signed"
+    msg = f"Unsupported target_mode: {target_mode}"
+    raise ValueError(msg)
+
+
+def _evaluate_continuous_frame(
+    frame: pd.DataFrame,
     *,
-    model,
-    train_x: np.ndarray,
-    train_y: np.ndarray,
-    val_x: np.ndarray,
-    test_x: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    model.fit(train_x, train_y)
-    val_scores = predict_scores(model, val_x)
-    test_scores = predict_scores(model, test_x)
-    return val_scores, test_scores
+    score_col: str,
+    target_col: str,
+    problem_col: str = "problem_id",
+) -> dict[str, Any]:
+    spearman = mean_problem_spearman(
+        frame,
+        score_col=score_col,
+        true_importance_col=target_col,
+        problem_col=problem_col,
+    )
+    return {
+        "pr_auc": float("nan"),
+        "spearman_mean": float(spearman),
+        "top_5_recall": float("nan"),
+        "top_10_recall": float("nan"),
+    }
+
+
+def _fit_baseline_and_residuals(
+    *,
+    train_frame: pd.DataFrame,
+    val_frame: pd.DataFrame,
+    test_frame: pd.DataFrame,
+    target_col: str,
+    residualize_against: str,
+    random_seed: int,
+) -> dict[str, np.ndarray]:
+    if residualize_against == "none":
+        return {}
+
+    if residualize_against == "position":
+        baseline_model = make_position_regressor()
+        train_x = build_position_features(train_frame)
+        val_x = build_position_features(val_frame)
+        test_x = build_position_features(test_frame)
+    elif residualize_against == "position_plus_text":
+        baseline_model = make_position_text_regressor()
+        train_x = train_frame
+        val_x = val_frame
+        test_x = test_frame
+    else:
+        msg = f"Unsupported residualize_against: {residualize_against}"
+        raise ValueError(msg)
+
+    train_y = train_frame[target_col].to_numpy(dtype=np.float32)
+    baseline_model.fit(train_x, train_y)
+    train_hat = predict_values(baseline_model, train_x)
+    val_hat = predict_values(baseline_model, val_x)
+    test_hat = predict_values(baseline_model, test_x)
+
+    return {
+        "train_residual": train_y - train_hat,
+        "val_residual": val_frame[target_col].to_numpy(dtype=np.float32) - val_hat,
+        "test_residual": test_frame[target_col].to_numpy(dtype=np.float32) - test_hat,
+        "train_hat": train_hat,
+        "val_hat": val_hat,
+        "test_hat": test_hat,
+    }
+
+
+def _build_residual_anchors(
+    frame: pd.DataFrame, *, residual_col: str, percentile: float
+) -> pd.Series:
+    def _threshold(group: pd.DataFrame) -> pd.Series:
+        values = group[residual_col].to_numpy(dtype=np.float32)
+        if values.size == 0:
+            return pd.Series([], dtype=np.int64, index=group.index)
+        threshold = float(np.percentile(values, percentile))
+        return (values >= threshold).astype(np.int64)
+
+    anchors = frame.groupby("problem_id", group_keys=False).apply(_threshold)
+    anchors = anchors.reindex(frame.index)
+    return anchors.astype(np.int64)
 
 
 def run_training(
@@ -202,6 +284,8 @@ def run_training(
     expected_compute_dtype: str | None = None,
     run_tripwires: bool = True,
     run_name: str | None = None,
+    target_mode: str = "anchor_binary",
+    residualize_against: str = "none",
 ) -> dict[str, Any]:
     """Train baseline and probe models, then write metrics and predictions."""
     metadata = pd.read_parquet(metadata_path)
@@ -233,7 +317,12 @@ def run_training(
         msg = "Split contains empty partition. Rebuild splits with more problems."
         raise ValueError(msg)
 
-    train_y = train_frame["anchor"].to_numpy(dtype=np.int64)
+    target_col = _resolve_target_col(target_mode)
+    is_continuous = target_mode != "anchor_binary"
+
+    train_y = train_frame[target_col].to_numpy(
+        dtype=np.float32 if is_continuous else np.int64
+    )
 
     train_pos_x = build_position_features(train_frame)
     val_pos_x = build_position_features(val_frame)
@@ -251,13 +340,22 @@ def run_training(
     val_emb_pos_x = _concat_features(val_emb_x, val_pos_x)
     test_emb_pos_x = _concat_features(test_emb_x, test_pos_x)
 
-    models = {
-        "position_baseline": make_position_baseline(random_seed),
-        "text_only_baseline": make_text_baseline(random_seed),
-        "linear_probe": make_linear_probe(random_seed),
-        "mlp_probe": make_mlp_probe(mlp_hidden_dim, mlp_max_iter, random_seed),
-        "activations_plus_position": make_linear_probe(random_seed),
-    }
+    if is_continuous:
+        models = {
+            "position_baseline": make_position_regressor(),
+            "text_only_baseline": make_text_regressor(),
+            "linear_probe": make_linear_regressor(),
+            "mlp_probe": make_mlp_regressor(mlp_hidden_dim, mlp_max_iter, random_seed),
+            "activations_plus_position": make_linear_regressor(),
+        }
+    else:
+        models = {
+            "position_baseline": make_position_baseline(random_seed),
+            "text_only_baseline": make_text_baseline(random_seed),
+            "linear_probe": make_linear_probe(random_seed),
+            "mlp_probe": make_mlp_probe(mlp_hidden_dim, mlp_max_iter, random_seed),
+            "activations_plus_position": make_linear_probe(random_seed),
+        }
 
     model_inputs = {
         "position_baseline": (train_pos_x, val_pos_x, test_pos_x),
@@ -272,13 +370,13 @@ def run_training(
 
     for name, model in models.items():
         train_x, val_x, test_x = model_inputs[name]
-        cur_val_scores, cur_test_scores = _fit_and_score(
-            model=model,
-            train_x=train_x,
-            train_y=train_y,
-            val_x=val_x,
-            test_x=test_x,
-        )
+        model.fit(train_x, train_y)
+        if is_continuous:
+            cur_val_scores = predict_values(model, val_x)
+            cur_test_scores = predict_values(model, test_x)
+        else:
+            cur_val_scores = predict_scores(model, val_x)
+            cur_test_scores = predict_scores(model, test_x)
         val_scores[name] = cur_val_scores
         test_scores[name] = cur_test_scores
 
@@ -293,62 +391,174 @@ def run_training(
         test_eval = test_frame.copy()
         test_eval["pred_score"] = test_scores[name]
 
-        val_metrics[name] = evaluate_frame(
-            val_eval,
-            score_col="pred_score",
-            k_values=k_values,
-        )
-        if position_bins > 0:
-            val_position_bin_metrics[name] = pr_auc_by_position_bins(
+        if is_continuous:
+            val_metrics[name] = _evaluate_continuous_frame(
                 val_eval,
                 score_col="pred_score",
-                n_bins=position_bins,
+                target_col=target_col,
             )
-
-        test_metrics[name] = evaluate_frame(
-            test_eval,
-            score_col="pred_score",
-            k_values=k_values,
-        )
-        if position_bins > 0:
-            test_position_bin_metrics[name] = pr_auc_by_position_bins(
+            test_metrics[name] = _evaluate_continuous_frame(
                 test_eval,
                 score_col="pred_score",
-                n_bins=position_bins,
+                target_col=target_col,
             )
+        else:
+            val_metrics[name] = evaluate_frame(
+                val_eval,
+                score_col="pred_score",
+                k_values=k_values,
+            )
+            if position_bins > 0:
+                val_position_bin_metrics[name] = pr_auc_by_position_bins(
+                    val_eval,
+                    score_col="pred_score",
+                    n_bins=position_bins,
+                )
+
+            test_metrics[name] = evaluate_frame(
+                test_eval,
+                score_col="pred_score",
+                k_values=k_values,
+            )
+            if position_bins > 0:
+                test_position_bin_metrics[name] = pr_auc_by_position_bins(
+                    test_eval,
+                    score_col="pred_score",
+                    n_bins=position_bins,
+                )
 
     predictions = test_frame.copy()
     for name in models:
         predictions[f"score_{name}"] = test_scores[name]
 
-    effective_bootstrap_seed = random_seed if bootstrap_seed is None else int(bootstrap_seed)
-    confidence_intervals: dict[str, Any] = {}
-
-    ci_comparisons = [
-        ("score_activations_plus_position", "score_position_baseline"),
-        ("score_activations_plus_position", "score_text_only_baseline"),
-    ]
-    for score_a, score_b in ci_comparisons:
-        if score_a not in predictions.columns or score_b not in predictions.columns:
-            continue
-        ci_key = f"{score_a}_minus_{score_b}"
-        ci_payload = bootstrap_pr_auc_delta_by_group(
-            predictions,
-            score_col_a=score_a,
-            score_col_b=score_b,
-            n_bootstrap=bootstrap_iterations,
-            random_seed=effective_bootstrap_seed,
-            group_col="problem_id",
+    residual_metrics: dict[str, dict[str, Any]] = {"val": {}, "test": {}}
+    if residualize_against != "none":
+        residual_base_col = target_col if is_continuous else "importance_score"
+        residual_payload = _fit_baseline_and_residuals(
+            train_frame=train_frame,
+            val_frame=val_frame,
+            test_frame=test_frame,
+            target_col=residual_base_col,
+            residualize_against=residualize_against,
+            random_seed=random_seed,
         )
-        point_a = float(test_metrics["activations_plus_position"]["pr_auc"])
-        if score_b == "score_position_baseline":
-            point_b = float(test_metrics["position_baseline"]["pr_auc"])
-        elif score_b == "score_text_only_baseline":
-            point_b = float(test_metrics["text_only_baseline"]["pr_auc"])
+        if not residual_payload:
+            raise ValueError("Residualization requested but baseline residuals are missing.")
+
+        train_residual = residual_payload["train_residual"]
+        val_residual = residual_payload["val_residual"]
+        test_residual = residual_payload["test_residual"]
+
+        train_frame = train_frame.copy()
+        val_frame = val_frame.copy()
+        test_frame = test_frame.copy()
+
+        train_frame["residual_target"] = train_residual
+        val_frame["residual_target"] = val_residual
+        test_frame["residual_target"] = test_residual
+
+        if target_mode == "anchor_binary":
+            train_frame["residual_anchor"] = _build_residual_anchors(
+                train_frame, residual_col="residual_target", percentile=expected_anchor_percentile or 90.0
+            )
+            val_frame["residual_anchor"] = _build_residual_anchors(
+                val_frame, residual_col="residual_target", percentile=expected_anchor_percentile or 90.0
+            )
+            test_frame["residual_anchor"] = _build_residual_anchors(
+                test_frame, residual_col="residual_target", percentile=expected_anchor_percentile or 90.0
+            )
+
+        residual_models: dict[str, Any] = {}
+        if target_mode == "anchor_binary":
+            residual_models = {
+                "linear_probe": make_linear_probe(random_seed),
+                "mlp_probe": make_mlp_probe(mlp_hidden_dim, mlp_max_iter, random_seed),
+            }
         else:
-            point_b = float("nan")
-        ci_payload["point_delta"] = float(point_a - point_b)
-        confidence_intervals[ci_key] = ci_payload
+            residual_models = {
+                "linear_probe": make_linear_regressor(),
+                "mlp_probe": make_mlp_regressor(mlp_hidden_dim, mlp_max_iter, random_seed),
+            }
+
+        train_residual_x = train_emb_x
+        val_residual_x = val_emb_x
+        test_residual_x = test_emb_x
+
+        if target_mode == "anchor_binary":
+            residual_train_y = train_frame["residual_anchor"].to_numpy(dtype=np.int64)
+            residual_val_y = val_frame["residual_anchor"].to_numpy(dtype=np.int64)
+            residual_test_y = test_frame["residual_anchor"].to_numpy(dtype=np.int64)
+        else:
+            residual_train_y = train_residual.astype(np.float32)
+            residual_val_y = val_residual.astype(np.float32)
+            residual_test_y = test_residual.astype(np.float32)
+
+        for name, model in residual_models.items():
+            model.fit(train_residual_x, residual_train_y)
+            if target_mode == "anchor_binary":
+                val_pred = predict_scores(model, val_residual_x)
+                test_pred = predict_scores(model, test_residual_x)
+            else:
+                val_pred = predict_values(model, val_residual_x)
+                test_pred = predict_values(model, test_residual_x)
+
+            residual_metrics["val"][name] = {
+                "residual_spearman": mean_problem_spearman(
+                    val_frame.assign(pred_score=val_pred),
+                    score_col="pred_score",
+                    true_importance_col="residual_target",
+                    problem_col="problem_id",
+                ),
+                "residual_pr_auc": (
+                    precision_recall_auc(residual_val_y, val_pred)
+                    if target_mode == "anchor_binary"
+                    else float("nan")
+                ),
+            }
+            residual_metrics["test"][name] = {
+                "residual_spearman": mean_problem_spearman(
+                    test_frame.assign(pred_score=test_pred),
+                    score_col="pred_score",
+                    true_importance_col="residual_target",
+                    problem_col="problem_id",
+                ),
+                "residual_pr_auc": (
+                    precision_recall_auc(residual_test_y, test_pred)
+                    if target_mode == "anchor_binary"
+                    else float("nan")
+                ),
+            }
+
+            predictions[f"residual_score_{name}"] = test_pred
+
+    confidence_intervals: dict[str, Any] = {}
+    if not is_continuous:
+        effective_bootstrap_seed = random_seed if bootstrap_seed is None else int(bootstrap_seed)
+        ci_comparisons = [
+            ("score_activations_plus_position", "score_position_baseline"),
+            ("score_activations_plus_position", "score_text_only_baseline"),
+        ]
+        for score_a, score_b in ci_comparisons:
+            if score_a not in predictions.columns or score_b not in predictions.columns:
+                continue
+            ci_key = f"{score_a}_minus_{score_b}"
+            ci_payload = bootstrap_pr_auc_delta_by_group(
+                predictions,
+                score_col_a=score_a,
+                score_col_b=score_b,
+                n_bootstrap=bootstrap_iterations,
+                random_seed=effective_bootstrap_seed,
+                group_col="problem_id",
+            )
+            point_a = float(test_metrics["activations_plus_position"]["pr_auc"])
+            if score_b == "score_position_baseline":
+                point_b = float(test_metrics["position_baseline"]["pr_auc"])
+            elif score_b == "score_text_only_baseline":
+                point_b = float(test_metrics["text_only_baseline"]["pr_auc"])
+            else:
+                point_b = float("nan")
+            ci_payload["point_delta"] = float(point_a - point_b)
+            confidence_intervals[ci_key] = ci_payload
 
     tripwires: dict[str, Any] = {}
     if run_tripwires:
@@ -365,6 +575,9 @@ def run_training(
         "seed": int(random_seed),
         "val": val_metrics,
         "test": test_metrics,
+        "residual_metrics": residual_metrics,
+        "target_mode": target_mode,
+        "residualize_against": residualize_against,
         "position_bin_metrics": {
             "val": val_position_bin_metrics,
             "test": test_position_bin_metrics,

@@ -203,6 +203,8 @@ def main() -> None:
                 expected_compute_dtype=config.activations.dtype,
                 run_tripwires=not args.no_tripwires,
                 run_name=f"fold_{int(fold_id)}_seed_{int(seed)}",
+                target_mode=config.labels.target_mode,
+                residualize_against=config.training.residualize_against,
             )
 
     bootstrap_seed = (

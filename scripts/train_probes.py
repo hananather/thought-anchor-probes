@@ -91,6 +91,8 @@ def main() -> None:
         expected_compute_dtype=config.activations.dtype,
         run_tripwires=not args.no_tripwires,
         run_name=args.run_name,
+        target_mode=config.labels.target_mode,
+        residualize_against=config.training.residualize_against,
     )
 
     print(json.dumps(metrics, indent=2, sort_keys=True))

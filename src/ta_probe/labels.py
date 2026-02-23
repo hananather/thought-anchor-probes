@@ -44,6 +44,7 @@ def build_problem_label_frame(
                 "chunk_text": chunk.get("chunk", ""),
                 "function_tag": function_tag,
                 "counterfactual_raw": float(raw_score),
+                "importance_signed": float(raw_score),
                 "importance_score": float(score),
                 "anchor": int(anchor),
             }

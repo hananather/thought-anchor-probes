@@ -16,6 +16,10 @@ SEED_METRIC_COLUMNS = [
     "top_5_recall",
     "top_10_recall",
 ]
+RESIDUAL_METRIC_COLUMNS = [
+    "residual_spearman",
+    "residual_pr_auc",
+]
 
 LOPO_COMPARISONS = [
     ("activations_plus_position", "position_baseline"),
@@ -86,6 +90,25 @@ def _flatten_seed_records(payload: dict[str, Any], run_label: str) -> list[dict[
     return records
 
 
+def _flatten_residual_records(payload: dict[str, Any], run_label: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    seed = int(payload.get("seed", -1))
+    residual_payload = payload.get("residual_metrics", {})
+    for split_name in ["val", "test"]:
+        split_metrics = residual_payload.get(split_name, {})
+        for model_name, model_metrics in split_metrics.items():
+            record = {
+                "run_label": run_label,
+                "seed": seed,
+                "split": split_name,
+                "model": model_name,
+            }
+            for column in RESIDUAL_METRIC_COLUMNS:
+                record[column] = float(model_metrics.get(column, float("nan")))
+            records.append(record)
+    return records
+
+
 def _fold_id_from_path(path: Path) -> int:
     for parent in path.parents:
         match = FOLD_PATTERN.fullmatch(parent.name)
@@ -104,6 +127,15 @@ def _flatten_seed_records_lopo(
     return records
 
 
+def _flatten_residual_records_lopo(
+    payload: dict[str, Any], run_label: str, fold_id: int
+) -> list[dict[str, Any]]:
+    records = _flatten_residual_records(payload, run_label)
+    for record in records:
+        record["fold_id"] = int(fold_id)
+    return records
+
+
 def _aggregate_summary(records: pd.DataFrame) -> pd.DataFrame:
     """Aggregate mean and std metrics per model using test split records."""
     test_records = records[records["split"] == "test"].copy()
@@ -117,6 +149,29 @@ def _aggregate_summary(records: pd.DataFrame) -> pd.DataFrame:
 
     summary = mean_df.merge(std_df, on="model", how="left")
     return summary.sort_values("pr_auc_mean", ascending=False, ignore_index=True)
+
+
+def _aggregate_residual_summary(records: pd.DataFrame) -> pd.DataFrame:
+    if records.empty:
+        return pd.DataFrame(
+            columns=[
+                "model",
+                "residual_spearman_mean",
+                "residual_spearman_std",
+                "residual_pr_auc_mean",
+                "residual_pr_auc_std",
+            ]
+        )
+    test_records = records[records["split"] == "test"].copy()
+    grouped = test_records.groupby("model", as_index=False)[RESIDUAL_METRIC_COLUMNS]
+    mean_df = grouped.mean().rename(
+        columns={column: f"{column}_mean" for column in RESIDUAL_METRIC_COLUMNS}
+    )
+    std_df = grouped.std(ddof=0).rename(
+        columns={column: f"{column}_std" for column in RESIDUAL_METRIC_COLUMNS}
+    )
+    summary = mean_df.merge(std_df, on="model", how="left")
+    return summary.sort_values("residual_spearman_mean", ascending=False, ignore_index=True)
 
 
 def _best_of_k_summary_by_model(seed_records: pd.DataFrame, best_of_k: int) -> pd.DataFrame:
@@ -345,6 +400,7 @@ def _summary_markdown(
     seed_records: pd.DataFrame,
     summary_records: pd.DataFrame,
     best_of_k_records: pd.DataFrame,
+    residual_summary_records: pd.DataFrame,
 ) -> str:
     """Build a markdown summary table for README-friendly reporting."""
     lines: list[str] = [
@@ -411,6 +467,23 @@ def _summary_markdown(
                 f"| {row['selected_seeds']} |"
             )
 
+    if not residual_summary_records.empty:
+        lines.extend(
+            [
+                "",
+                "## Beyond-Position Residual Metrics (Test)",
+                "",
+                "| Model | Residual Spearman mean | Residual Spearman std | Residual PR AUC mean | Residual PR AUC std |",
+                "|---|---:|---:|---:|---:|",
+            ]
+        )
+        for _, row in residual_summary_records.iterrows():
+            lines.append(
+                f"| {row['model']} "
+                f"| {row['residual_spearman_mean']:.4f} | {row['residual_spearman_std']:.4f} "
+                f"| {row['residual_pr_auc_mean']:.4f} | {row['residual_pr_auc_std']:.4f} |"
+            )
+
     lines.append("")
     return "\n".join(lines)
 
@@ -468,17 +541,21 @@ def aggregate_run_metrics(
 
     records: list[dict[str, Any]] = []
     ci_records: list[dict[str, Any]] = []
+    residual_records: list[dict[str, Any]] = []
     for metric_file in metric_files:
         payload = _load_metrics_file(metric_file)
         run_label = _run_label_from_path(metric_file)
         records.extend(_flatten_seed_records(payload, run_label))
         ci_records.extend(_flatten_ci_records(payload, run_label))
+        residual_records.extend(_flatten_residual_records(payload, run_label))
 
     seed_df = pd.DataFrame(records)
     summary_df = _aggregate_summary(seed_df)
     best_of_k_df = _best_of_k_summary_by_model(seed_df, best_of_k)
     ci_df = pd.DataFrame(ci_records)
     ci_summary_df = _aggregate_ci_summary(ci_df)
+    residual_df = pd.DataFrame(residual_records)
+    residual_summary_df = _aggregate_residual_summary(residual_df)
     best_model = summary_df.iloc[0]["model"] if not summary_df.empty else None
 
     summary_payload = {
@@ -491,6 +568,8 @@ def aggregate_run_metrics(
         "summary_by_model": summary_df.to_dict(orient="records"),
         "best_of_k_summary_by_model": best_of_k_df.to_dict(orient="records"),
         "best_of_k": int(best_of_k),
+        "residual_records": residual_df.to_dict(orient="records"),
+        "residual_summary_by_model": residual_summary_df.to_dict(orient="records"),
         "ci_records": ci_df.to_dict(orient="records"),
         "ci_summary": ci_summary_df.to_dict(orient="records"),
     }
@@ -507,7 +586,7 @@ def aggregate_run_metrics(
 
     md_path = Path(output_md_path)
     md_path.parent.mkdir(parents=True, exist_ok=True)
-    markdown = _summary_markdown(seed_df, summary_df, best_of_k_df)
+    markdown = _summary_markdown(seed_df, summary_df, best_of_k_df, residual_summary_df)
     ci_markdown = _ci_markdown(ci_df, ci_summary_df)
     if ci_markdown:
         markdown = f"{markdown}\n{ci_markdown}".strip() + "\n"
@@ -535,13 +614,16 @@ def aggregate_lopo_metrics(
         raise FileNotFoundError(msg)
 
     records: list[dict[str, Any]] = []
+    residual_records: list[dict[str, Any]] = []
     for metric_file in metric_files:
         payload = _load_metrics_file(metric_file)
         fold_id = _fold_id_from_path(metric_file)
         run_label = metric_file.parent.name
         records.extend(_flatten_seed_records_lopo(payload, run_label, fold_id))
+        residual_records.extend(_flatten_residual_records_lopo(payload, run_label, fold_id))
 
     seed_df = pd.DataFrame(records)
+    residual_df = pd.DataFrame(residual_records)
     test_df = seed_df[seed_df["split"] == "test"].copy()
 
     fold_mean = (
@@ -566,6 +648,59 @@ def aggregate_lopo_metrics(
         fold_best = fold_best.merge(seed_counts, on=["fold_id", "model"], how="left")
 
     fold_summary = pd.concat([fold_mean, fold_best], ignore_index=True)
+
+    residual_fold_summary = pd.DataFrame()
+    residual_fold_agg = pd.DataFrame()
+    if not residual_df.empty:
+        residual_test_df = residual_df[residual_df["split"] == "test"].copy()
+        residual_mean = (
+            residual_test_df.groupby(["fold_id", "model"], as_index=False)[RESIDUAL_METRIC_COLUMNS]
+            .mean()
+            .assign(agg_type="mean_seeds", k=int(best_of_k))
+        )
+        residual_seed_counts = (
+            residual_test_df.groupby(["fold_id", "model"], as_index=False)["seed"]
+            .nunique()
+            .rename(columns={"seed": "seed_count"})
+        )
+        residual_mean = residual_mean.merge(
+            residual_seed_counts, on=["fold_id", "model"], how="left"
+        )
+
+        residual_best = pd.DataFrame()
+        if selections:
+            mask = []
+            for _, row in residual_test_df.iterrows():
+                key = (int(row["fold_id"]), str(row["model"]))
+                selected = selections.get(key)
+                mask.append(selected is not None and int(row["seed"]) in selected)
+            residual_filtered = residual_test_df[pd.Series(mask, index=residual_test_df.index)]
+            if not residual_filtered.empty:
+                residual_best = (
+                    residual_filtered.groupby(["fold_id", "model"], as_index=False)[
+                        RESIDUAL_METRIC_COLUMNS
+                    ]
+                    .mean()
+                    .assign(agg_type="best_of_k", k=int(best_of_k))
+                )
+                residual_best = residual_best.merge(
+                    residual_seed_counts, on=["fold_id", "model"], how="left"
+                )
+
+        residual_fold_summary = pd.concat([residual_mean, residual_best], ignore_index=True)
+
+        residual_grouped = residual_fold_summary.groupby(
+            ["agg_type", "model"], as_index=False
+        )[RESIDUAL_METRIC_COLUMNS]
+        residual_mean_df = residual_grouped.mean().rename(
+            columns={column: f"{column}_mean" for column in RESIDUAL_METRIC_COLUMNS}
+        )
+        residual_std_df = residual_grouped.std(ddof=0).rename(
+            columns={column: f"{column}_std" for column in RESIDUAL_METRIC_COLUMNS}
+        )
+        residual_fold_agg = residual_mean_df.merge(
+            residual_std_df, on=["agg_type", "model"], how="left"
+        )
 
     fold_grouped = fold_summary.groupby(["agg_type", "model"], as_index=False)[SEED_METRIC_COLUMNS]
     fold_mean_df = fold_grouped.mean().rename(
@@ -608,6 +743,8 @@ def aggregate_lopo_metrics(
         "seed_records": seed_df.to_dict(orient="records"),
         "fold_summary_by_model": fold_summary.to_dict(orient="records"),
         "fold_aggregate_by_model": fold_agg.to_dict(orient="records"),
+        "residual_fold_summary_by_model": residual_fold_summary.to_dict(orient="records"),
+        "residual_fold_aggregate_by_model": residual_fold_agg.to_dict(orient="records"),
         "paired_delta_records": delta_records,
         "paired_delta_summary": delta_summaries,
         "best_of_k_selections": selection_payload,
@@ -644,6 +781,23 @@ def aggregate_lopo_metrics(
             f"| {row['bootstrap_ci_low']:.4f} | {row['bootstrap_ci_high']:.4f} |"
         )
     md_lines.append("")
+
+    if not residual_fold_agg.empty:
+        md_lines.extend(
+            [
+                "## Beyond-Position Residual Metrics (Test)",
+                "",
+                "| Agg | Model | Residual Spearman mean | Residual Spearman std | Residual PR AUC mean | Residual PR AUC std |",
+                "|---|---|---:|---:|---:|---:|",
+            ]
+        )
+        for _, row in residual_fold_agg.iterrows():
+            md_lines.append(
+                f"| {row['agg_type']} | {row['model']} "
+                f"| {row['residual_spearman_mean']:.4f} | {row['residual_spearman_std']:.4f} "
+                f"| {row['residual_pr_auc_mean']:.4f} | {row['residual_pr_auc_std']:.4f} |"
+            )
+        md_lines.append("")
     md_path.write_text("\n".join(md_lines), encoding="utf-8")
 
     summary_payload["output_json"] = str(json_path)

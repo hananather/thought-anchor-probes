@@ -11,6 +11,7 @@ labels:
   counterfactual_field: counterfactual_importance_accuracy
   anchor_percentile: 90.0
   drop_last_chunk: true
+  target_mode: anchor_binary
 
 activations:
   model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
@@ -33,6 +34,8 @@ training:
   bootstrap_iterations: 1000
   bootstrap_seed:
   position_bins: 5
+  best_of_k: 1
+  residualize_against: none
 
 paths:
   problem_ids_json: data/problem_ids_pilot.json
