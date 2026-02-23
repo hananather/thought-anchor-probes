@@ -40,6 +40,34 @@ def test_residuals_fit_on_train_only() -> None:
     assert np.max(np.abs(train_hat - np.array([0.0, 1.0], dtype=np.float32))) < 5.0
 
 
+def test_residual_baseline_is_invariant_to_val_test_shift() -> None:
+    train = _make_frame(1, [0, 1, 2], [0.0, 0.5, 1.0])
+    val_a = _make_frame(2, [0, 1, 2], [10.0, 11.0, 12.0])
+    test_a = _make_frame(3, [0, 1, 2], [20.0, 21.0, 22.0])
+    val_b = _make_frame(2, [0, 1, 2], [1000.0, 1000.0, 1000.0])
+    test_b = _make_frame(3, [0, 1, 2], [-1000.0, -1000.0, -1000.0])
+
+    residuals_a = _fit_baseline_and_residuals(
+        train_frame=train,
+        val_frame=val_a,
+        test_frame=test_a,
+        target_col="importance_score",
+        residualize_against="position",
+        random_seed=0,
+    )
+    residuals_b = _fit_baseline_and_residuals(
+        train_frame=train,
+        val_frame=val_b,
+        test_frame=test_b,
+        target_col="importance_score",
+        residualize_against="position",
+        random_seed=0,
+    )
+
+    assert np.allclose(residuals_a["train_hat"], residuals_b["train_hat"])
+    assert np.allclose(residuals_a["train_residual"], residuals_b["train_residual"])
+
+
 def test_residual_anchor_thresholds_by_problem() -> None:
     frame = pd.concat(
         [

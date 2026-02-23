@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from ta_probe.data_loading import create_lopo_folds, create_splits
 
 
@@ -33,3 +35,15 @@ def test_create_lopo_folds_counts() -> None:
         assert split["test"] == [fold_id]
         assert len(split["val"]) == 1
         assert len(split["train"]) == 2
+
+
+def test_create_lopo_folds_requires_three_problems_when_val_nonzero() -> None:
+    with pytest.raises(ValueError, match="at least 3 problems"):
+        create_lopo_folds([1, 2], val_fraction=0.15)
+
+
+def test_create_lopo_folds_allows_two_problems_when_val_zero() -> None:
+    folds = create_lopo_folds([1, 2], val_fraction=0.0)
+    assert len(folds) == 2
+    assert folds[1]["val"] == []
+    assert folds[2]["val"] == []

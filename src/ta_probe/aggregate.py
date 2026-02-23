@@ -28,6 +28,12 @@ LOPO_COMPARISONS = [
 ]
 
 FOLD_PATTERN = re.compile(r"fold_(\d+)")
+CONTINUOUS_TARGET_MODES = {"importance_abs", "importance_signed"}
+PRIMARY_METRIC_BY_TARGET_MODE = {
+    "anchor_binary": "pr_auc",
+    "importance_abs": "spearman_mean",
+    "importance_signed": "spearman_mean",
+}
 
 
 def discover_metric_files(run_root: str | Path) -> list[Path]:
@@ -70,9 +76,44 @@ def _load_metrics_file(path: Path) -> dict[str, Any]:
         return json.load(handle)
 
 
+def _normalize_target_mode(target_mode: Any) -> str:
+    mode = str(target_mode) if target_mode is not None else "anchor_binary"
+    if mode in PRIMARY_METRIC_BY_TARGET_MODE:
+        return mode
+    return "anchor_binary"
+
+
+def _primary_metric_for_target_mode(target_mode: str) -> str:
+    return PRIMARY_METRIC_BY_TARGET_MODE[_normalize_target_mode(target_mode)]
+
+
+def _metric_label(metric_name: str) -> str:
+    if metric_name == "pr_auc":
+        return "PR AUC"
+    if metric_name == "spearman_mean":
+        return "Spearman"
+    return metric_name
+
+
+def _metric_mean_column(metric_name: str) -> str:
+    return f"{metric_name}_mean"
+
+
+def _resolve_target_mode_set(target_modes: set[str]) -> str:
+    normalized = {_normalize_target_mode(mode) for mode in target_modes}
+    if not normalized:
+        return "anchor_binary"
+    if len(normalized) > 1:
+        modes = ", ".join(sorted(normalized))
+        msg = f"Found mixed target_mode values across metrics files: {modes}"
+        raise ValueError(msg)
+    return next(iter(normalized))
+
+
 def _flatten_seed_records(payload: dict[str, Any], run_label: str) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     seed = int(payload.get("seed", -1))
+    target_mode = _normalize_target_mode(payload.get("target_mode", "anchor_binary"))
 
     for split_name in ["val", "test"]:
         split_metrics = payload.get(split_name, {})
@@ -82,6 +123,7 @@ def _flatten_seed_records(payload: dict[str, Any], run_label: str) -> list[dict[
                 "seed": seed,
                 "split": split_name,
                 "model": model_name,
+                "target_mode": target_mode,
             }
             for column in SEED_METRIC_COLUMNS:
                 record[column] = float(model_metrics.get(column, float("nan")))
@@ -136,7 +178,7 @@ def _flatten_residual_records_lopo(
     return records
 
 
-def _aggregate_summary(records: pd.DataFrame) -> pd.DataFrame:
+def _aggregate_summary(records: pd.DataFrame, *, ranking_metric: str) -> pd.DataFrame:
     """Aggregate mean and std metrics per model using test split records."""
     test_records = records[records["split"] == "test"].copy()
     grouped = test_records.groupby("model", as_index=False)[SEED_METRIC_COLUMNS]
@@ -148,7 +190,11 @@ def _aggregate_summary(records: pd.DataFrame) -> pd.DataFrame:
     )
 
     summary = mean_df.merge(std_df, on="model", how="left")
-    return summary.sort_values("pr_auc_mean", ascending=False, ignore_index=True)
+    sort_col = _metric_mean_column(ranking_metric)
+    if sort_col not in summary.columns:
+        msg = f"Ranking metric '{ranking_metric}' is not available in summary columns."
+        raise ValueError(msg)
+    return summary.sort_values(sort_col, ascending=False, ignore_index=True)
 
 
 def _aggregate_residual_summary(records: pd.DataFrame) -> pd.DataFrame:
@@ -174,17 +220,26 @@ def _aggregate_residual_summary(records: pd.DataFrame) -> pd.DataFrame:
     return summary.sort_values("residual_spearman_mean", ascending=False, ignore_index=True)
 
 
-def _best_of_k_summary_by_model(seed_records: pd.DataFrame, best_of_k: int) -> pd.DataFrame:
+def _best_of_k_summary_by_model(
+    seed_records: pd.DataFrame,
+    best_of_k: int,
+    *,
+    ranking_metric: str,
+) -> pd.DataFrame:
     if best_of_k <= 0:
         return pd.DataFrame()
+    if ranking_metric not in SEED_METRIC_COLUMNS:
+        msg = f"Unsupported ranking metric for best-of-k: {ranking_metric}"
+        raise ValueError(msg)
     val_records = seed_records[seed_records["split"] == "val"][
-        ["model", "seed", "pr_auc"]
+        ["model", "seed", ranking_metric]
     ].copy()
     test_records = seed_records[seed_records["split"] == "test"].copy()
     rows: list[dict[str, Any]] = []
     for model, group in val_records.groupby("model", sort=False):
+        ranked = group.assign(_rank_metric=group[ranking_metric].fillna(float("-inf")))
         ordered = (
-            group.sort_values(["pr_auc", "seed"], ascending=[False, True])
+            ranked.sort_values(["_rank_metric", "seed"], ascending=[False, True])
             .head(best_of_k)["seed"]
             .to_list()
         )
@@ -201,7 +256,8 @@ def _best_of_k_summary_by_model(seed_records: pd.DataFrame, best_of_k: int) -> p
         rows.append(row)
     if not rows:
         return pd.DataFrame()
-    return pd.DataFrame(rows).sort_values("pr_auc_mean", ascending=False, ignore_index=True)
+    sort_col = _metric_mean_column(ranking_metric)
+    return pd.DataFrame(rows).sort_values(sort_col, ascending=False, ignore_index=True)
 
 
 def _mean_std_by_model(records: pd.DataFrame) -> pd.DataFrame:
@@ -216,17 +272,24 @@ def _mean_std_by_model(records: pd.DataFrame) -> pd.DataFrame:
 
 
 def _select_best_of_k_seeds(
-    seed_records: pd.DataFrame, best_of_k: int
+    seed_records: pd.DataFrame,
+    best_of_k: int,
+    *,
+    ranking_metric: str,
 ) -> dict[tuple[int, str], list[int]]:
     if best_of_k <= 0:
         return {}
+    if ranking_metric not in SEED_METRIC_COLUMNS:
+        msg = f"Unsupported ranking metric for best-of-k: {ranking_metric}"
+        raise ValueError(msg)
     val_records = seed_records[seed_records["split"] == "val"][
-        ["fold_id", "model", "seed", "pr_auc"]
+        ["fold_id", "model", "seed", ranking_metric]
     ].copy()
     selections: dict[tuple[int, str], list[int]] = {}
     for (fold_id, model), group in val_records.groupby(["fold_id", "model"], sort=False):
+        ranked = group.assign(_rank_metric=group[ranking_metric].fillna(float("-inf")))
         ordered = (
-            group.sort_values(["pr_auc", "seed"], ascending=[False, True])
+            ranked.sort_values(["_rank_metric", "seed"], ascending=[False, True])
             .head(best_of_k)["seed"]
             .to_list()
         )
@@ -401,6 +464,8 @@ def _summary_markdown(
     summary_records: pd.DataFrame,
     best_of_k_records: pd.DataFrame,
     residual_summary_records: pd.DataFrame,
+    *,
+    ranking_metric: str,
 ) -> str:
     """Build a markdown summary table for README-friendly reporting."""
     lines: list[str] = [
@@ -445,10 +510,11 @@ def _summary_markdown(
         )
 
     if not best_of_k_records.empty:
+        metric_label = _metric_label(ranking_metric)
         lines.extend(
             [
                 "",
-                f"## Best-of-K by Validation PR AUC (k={int(best_of_k_records.iloc[0]['k'])})",
+                f"## Best-of-K by Validation {metric_label} (k={int(best_of_k_records.iloc[0]['k'])})",
                 "",
                 (
                     "| Model | PR AUC mean | PR AUC std | Spearman mean | Spearman std "
@@ -542,16 +608,25 @@ def aggregate_run_metrics(
     records: list[dict[str, Any]] = []
     ci_records: list[dict[str, Any]] = []
     residual_records: list[dict[str, Any]] = []
+    target_modes: set[str] = set()
     for metric_file in metric_files:
         payload = _load_metrics_file(metric_file)
         run_label = _run_label_from_path(metric_file)
+        target_modes.add(_normalize_target_mode(payload.get("target_mode", "anchor_binary")))
         records.extend(_flatten_seed_records(payload, run_label))
         ci_records.extend(_flatten_ci_records(payload, run_label))
         residual_records.extend(_flatten_residual_records(payload, run_label))
 
+    target_mode = _resolve_target_mode_set(target_modes)
+    primary_metric = _primary_metric_for_target_mode(target_mode)
+
     seed_df = pd.DataFrame(records)
-    summary_df = _aggregate_summary(seed_df)
-    best_of_k_df = _best_of_k_summary_by_model(seed_df, best_of_k)
+    summary_df = _aggregate_summary(seed_df, ranking_metric=primary_metric)
+    best_of_k_df = _best_of_k_summary_by_model(
+        seed_df,
+        best_of_k,
+        ranking_metric=primary_metric,
+    )
     ci_df = pd.DataFrame(ci_records)
     ci_summary_df = _aggregate_ci_summary(ci_df)
     residual_df = pd.DataFrame(residual_records)
@@ -563,6 +638,9 @@ def aggregate_run_metrics(
         "metric_files": [str(path) for path in metric_files],
         "num_runs": int(seed_df["run_label"].nunique()),
         "num_seed_records": int(len(seed_df)),
+        "target_mode": target_mode,
+        "primary_metric": primary_metric,
+        "best_model_by_primary_metric": best_model,
         "best_model_by_mean_pr_auc": best_model,
         "seed_records": seed_df.to_dict(orient="records"),
         "summary_by_model": summary_df.to_dict(orient="records"),
@@ -586,7 +664,13 @@ def aggregate_run_metrics(
 
     md_path = Path(output_md_path)
     md_path.parent.mkdir(parents=True, exist_ok=True)
-    markdown = _summary_markdown(seed_df, summary_df, best_of_k_df, residual_summary_df)
+    markdown = _summary_markdown(
+        seed_df,
+        summary_df,
+        best_of_k_df,
+        residual_summary_df,
+        ranking_metric=primary_metric,
+    )
     ci_markdown = _ci_markdown(ci_df, ci_summary_df)
     if ci_markdown:
         markdown = f"{markdown}\n{ci_markdown}".strip() + "\n"
@@ -615,12 +699,17 @@ def aggregate_lopo_metrics(
 
     records: list[dict[str, Any]] = []
     residual_records: list[dict[str, Any]] = []
+    target_modes: set[str] = set()
     for metric_file in metric_files:
         payload = _load_metrics_file(metric_file)
         fold_id = _fold_id_from_path(metric_file)
         run_label = metric_file.parent.name
+        target_modes.add(_normalize_target_mode(payload.get("target_mode", "anchor_binary")))
         records.extend(_flatten_seed_records_lopo(payload, run_label, fold_id))
         residual_records.extend(_flatten_residual_records_lopo(payload, run_label, fold_id))
+
+    target_mode = _resolve_target_mode_set(target_modes)
+    primary_metric = _primary_metric_for_target_mode(target_mode)
 
     seed_df = pd.DataFrame(records)
     residual_df = pd.DataFrame(residual_records)
@@ -638,7 +727,7 @@ def aggregate_lopo_metrics(
     )
     fold_mean = fold_mean.merge(seed_counts, on=["fold_id", "model"], how="left")
 
-    selections = _select_best_of_k_seeds(seed_df, best_of_k)
+    selections = _select_best_of_k_seeds(seed_df, best_of_k, ranking_metric=primary_metric)
     selection_payload: dict[str, dict[str, list[int]]] = {}
     for (fold_id, model), seeds in selections.items():
         selection_payload.setdefault(str(fold_id), {})[str(model)] = list(seeds)
@@ -717,7 +806,7 @@ def aggregate_lopo_metrics(
         subset = fold_summary[fold_summary["agg_type"] == agg_type].copy()
         deltas = _paired_deltas_by_fold(
             subset,
-            metric="pr_auc",
+            metric=primary_metric,
             comparisons=LOPO_COMPARISONS,
         )
         for record in deltas:
@@ -739,6 +828,8 @@ def aggregate_lopo_metrics(
         "metric_files": [str(path) for path in metric_files],
         "num_folds": int(seed_df["fold_id"].nunique()),
         "num_seed_records": int(len(seed_df)),
+        "target_mode": target_mode,
+        "primary_metric": primary_metric,
         "best_of_k": int(best_of_k),
         "seed_records": seed_df.to_dict(orient="records"),
         "fold_summary_by_model": fold_summary.to_dict(orient="records"),
@@ -768,7 +859,7 @@ def aggregate_lopo_metrics(
         f"- Folds: {summary_payload['num_folds']}",
         f"- Seed records: {summary_payload['num_seed_records']}",
         "",
-        "## Paired Delta Summary (PR AUC, folds as unit)",
+        f"## Paired Delta Summary ({_metric_label(primary_metric)}, folds as unit)",
         "",
         "| Agg | Comparison | Mean | Std | Positive | Folds | CI low | CI high |",
         "|---|---|---:|---:|---:|---:|---:|---:|",

@@ -26,6 +26,12 @@ Residual evaluation reports:
 
 These are surfaced in aggregate reports under “Beyond-Position Residual Metrics.”
 
+For model ranking and best-of-k seed selection, aggregation uses a target-aware
+primary metric:
+
+- `anchor_binary` -> PR-AUC
+- `importance_abs` / `importance_signed` -> Spearman
+
 ## Configuration
 
 ```yaml

@@ -140,8 +140,19 @@ def create_lopo_folds(
 ) -> dict[int, dict[str, list[int]]]:
     """Create leave-one-problem-out folds with deterministic validation selection."""
     unique_ids = sorted({int(problem_id) for problem_id in problem_ids})
-    if len(unique_ids) < 2:
-        msg = "Need at least 2 problems to build LOPO folds."
+    if val_fraction < 0.0 or val_fraction >= 1.0:
+        msg = "val_fraction must satisfy 0.0 <= val_fraction < 1.0 for LOPO folds."
+        raise ValueError(msg)
+
+    if val_fraction > 0.0 and len(unique_ids) < 3:
+        msg = (
+            "Need at least 3 problems to build LOPO folds when val_fraction > 0. "
+            "With only 2 problems, one fold would have empty train or validation."
+        )
+        raise ValueError(msg)
+
+    if val_fraction == 0.0 and len(unique_ids) < 2:
+        msg = "Need at least 2 problems to build LOPO folds when val_fraction == 0."
         raise ValueError(msg)
 
     folds: dict[int, dict[str, list[int]]] = {}
@@ -151,14 +162,18 @@ def create_lopo_folds(
         if n_remaining < 1:
             msg = "LOPO fold would have empty train/val set."
             raise ValueError(msg)
-        val_count = max(1, int(round(val_fraction * n_remaining)))
-        if val_count >= n_remaining:
-            val_count = n_remaining - 1
-        if val_count < 1:
-            msg = "LOPO fold would have empty validation set."
-            raise ValueError(msg)
-        val_ids = sorted(remaining[:val_count])
-        train_ids = sorted(remaining[val_count:])
+        if val_fraction == 0.0:
+            val_ids = []
+            train_ids = sorted(remaining)
+        else:
+            val_count = max(1, int(round(val_fraction * n_remaining)))
+            if val_count >= n_remaining:
+                val_count = n_remaining - 1
+            if val_count < 1:
+                msg = "LOPO fold would have empty validation set."
+                raise ValueError(msg)
+            val_ids = sorted(remaining[:val_count])
+            train_ids = sorted(remaining[val_count:])
         if not train_ids:
             msg = "LOPO fold would have empty train set."
             raise ValueError(msg)

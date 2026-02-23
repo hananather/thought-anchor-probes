@@ -188,3 +188,169 @@ def test_aggregate_lopo_uses_fold_level_deltas(tmp_path: Path) -> None:
     assert len(summary_rows) == 1
     assert summary_rows[0]["n_folds"] == 2
     assert round(float(summary_rows[0]["mean"]), 4) == 0.05
+
+
+def test_aggregate_run_metrics_uses_spearman_for_continuous_targets(tmp_path: Path) -> None:
+    payload_seed_0 = {
+        "seed": 0,
+        "target_mode": "importance_signed",
+        "val": {
+            "linear_probe": {
+                "pr_auc": 0.95,
+                "spearman_mean": 0.2,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+            "mlp_probe": {
+                "pr_auc": 0.10,
+                "spearman_mean": 0.9,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+        },
+        "test": {
+            "linear_probe": {
+                "pr_auc": 0.99,
+                "spearman_mean": 0.3,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+            "mlp_probe": {
+                "pr_auc": 0.05,
+                "spearman_mean": 0.8,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+        },
+    }
+    payload_seed_1 = {
+        "seed": 1,
+        "target_mode": "importance_signed",
+        "val": {
+            "linear_probe": {
+                "pr_auc": 0.90,
+                "spearman_mean": 0.1,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+            "mlp_probe": {
+                "pr_auc": 0.80,
+                "spearman_mean": 0.4,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+        },
+        "test": {
+            "linear_probe": {
+                "pr_auc": 0.98,
+                "spearman_mean": 0.2,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+            "mlp_probe": {
+                "pr_auc": 0.70,
+                "spearman_mean": 0.6,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+        },
+    }
+    (tmp_path / "metrics_seed_0.json").write_text(json.dumps(payload_seed_0), encoding="utf-8")
+    (tmp_path / "metrics_seed_1.json").write_text(json.dumps(payload_seed_1), encoding="utf-8")
+
+    summary = aggregate_run_metrics(tmp_path, best_of_k=1)
+    assert summary["primary_metric"] == "spearman_mean"
+    assert summary["best_model_by_primary_metric"] == "mlp_probe"
+    assert summary["best_model_by_mean_pr_auc"] == "mlp_probe"
+
+    best_of_k_rows = {
+        row["model"]: row for row in summary["best_of_k_summary_by_model"]
+    }
+    assert best_of_k_rows["mlp_probe"]["selected_seeds"] == [0]
+    assert best_of_k_rows["linear_probe"]["selected_seeds"] == [0]
+
+
+def test_aggregate_lopo_uses_primary_metric_for_continuous_targets(tmp_path: Path) -> None:
+    payload_fold_1 = {
+        "seed": 0,
+        "target_mode": "importance_abs",
+        "val": {
+            "activations_plus_position": {
+                "pr_auc": 0.2,
+                "spearman_mean": 0.7,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+            "position_baseline": {
+                "pr_auc": 0.8,
+                "spearman_mean": 0.2,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+        },
+        "test": {
+            "activations_plus_position": {
+                "pr_auc": 0.1,
+                "spearman_mean": 0.8,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+            "position_baseline": {
+                "pr_auc": 0.9,
+                "spearman_mean": 0.2,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+        },
+    }
+    payload_fold_2 = {
+        "seed": 0,
+        "target_mode": "importance_abs",
+        "val": {
+            "activations_plus_position": {
+                "pr_auc": 0.8,
+                "spearman_mean": 0.2,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+            "position_baseline": {
+                "pr_auc": 0.2,
+                "spearman_mean": 0.4,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+        },
+        "test": {
+            "activations_plus_position": {
+                "pr_auc": 0.9,
+                "spearman_mean": 0.1,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+            "position_baseline": {
+                "pr_auc": 0.1,
+                "spearman_mean": 0.4,
+                "top_5_recall": float("nan"),
+                "top_10_recall": float("nan"),
+            },
+        },
+    }
+    fold_1_path = tmp_path / "fold_1" / "0" / "metrics.json"
+    fold_1_path.parent.mkdir(parents=True, exist_ok=True)
+    fold_1_path.write_text(json.dumps(payload_fold_1), encoding="utf-8")
+    fold_2_path = tmp_path / "fold_2" / "0" / "metrics.json"
+    fold_2_path.parent.mkdir(parents=True, exist_ok=True)
+    fold_2_path.write_text(json.dumps(payload_fold_2), encoding="utf-8")
+
+    summary = aggregate_lopo_metrics(tmp_path, best_of_k=1, bootstrap_iterations=10, bootstrap_seed=0)
+    assert summary["primary_metric"] == "spearman_mean"
+
+    delta_rows = [
+        row
+        for row in summary["paired_delta_summary"]
+        if row["comparison"] == "activations_plus_position_minus_position_baseline"
+        and row["agg_type"] == "mean_seeds"
+    ]
+    assert len(delta_rows) == 1
+    assert delta_rows[0]["metric"] == "spearman_mean"
+    assert round(float(delta_rows[0]["mean"]), 4) == 0.15

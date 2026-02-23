@@ -23,5 +23,8 @@ Outputs
 
 - Fold artifacts live under `artifacts/runs/<run_name>/fold_<problem_id>/<seed>/...`.
 - Aggregation includes mean/std across folds, paired per-problem deltas vs the position baseline, and fold-level bootstrap CIs.
+- Paired deltas use the **primary metric** for the target mode:
+  - `anchor_binary` -> PR-AUC
+  - `importance_abs` / `importance_signed` -> Spearman
 
 This design makes evaluation decision-grade under tiny `N_problems` without changing the default single-split pipeline.

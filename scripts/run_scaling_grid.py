@@ -40,6 +40,14 @@ PARITY_FIELDS = (
     ("split", "strategy"),
     ("labels", "target_mode"),
     ("training", "residualize_against"),
+    ("activations", "pooling"),
+    ("training", "token_probe_heads"),
+    ("training", "token_probe_mlp_width"),
+    ("training", "token_probe_mlp_depth"),
+    ("activations", "vertical_attention", "mode"),
+    ("activations", "vertical_attention", "depth_control"),
+    ("activations", "vertical_attention", "light_last_n_tokens"),
+    ("activations", "vertical_attention", "full_max_seq_len"),
 )
 
 
@@ -67,7 +75,7 @@ def build_discovery_cache_paths(configs: list[Any], cache_root: Path) -> list[Pa
     return paths
 
 
-def _resolve_config_field(config: Any, field_path: tuple[str, str]) -> Any:
+def _resolve_config_field(config: Any, field_path: tuple[str, ...]) -> Any:
     value = config
     for segment in field_path:
         value = getattr(value, segment)
@@ -173,6 +181,21 @@ def _load_json(path: str | Path) -> Any:
         return json.load(handle)
 
 
+def _parse_last_json(text: str) -> dict[str, Any]:
+    cursor = text.rfind("{")
+    while cursor != -1:
+        candidate = text[cursor:]
+        try:
+            payload = json.loads(candidate)
+            if isinstance(payload, dict):
+                return payload
+        except json.JSONDecodeError:
+            pass
+        cursor = text.rfind("{", 0, cursor)
+    msg = "Could not parse JSON object from command stdout"
+    raise ValueError(msg)
+
+
 def _write_markdown_summary(
     *,
     output_path: Path,
@@ -197,15 +220,25 @@ def _write_markdown_summary(
     lines.extend(
         [
             "",
-            "| Setting | Best model by mean PR AUC | Mean PR AUC (best) | CI rows |",
-            "|---|---|---:|---:|",
+            "| Setting | Best model | Primary metric | Mean primary metric (best) | CI rows | Storage estimate |",
+            "|---|---|---|---:|---:|---:|",
         ]
     )
     for item in per_setting:
         best_model = item.get("best_model")
-        best_pr_auc = float(item.get("best_pr_auc_mean", float("nan")))
+        primary_metric = str(item.get("primary_metric", "pr_auc"))
+        best_primary = float(
+            item.get(
+                "best_primary_metric_mean",
+                item.get("best_pr_auc_mean", float("nan")),
+            )
+        )
         ci_rows = int(item.get("num_ci_records", 0))
-        lines.append(f"| {item['setting']} | {best_model} | {best_pr_auc:.4f} | {ci_rows} |")
+        storage_human = str(item.get("storage_total_human", "n/a"))
+        lines.append(
+            f"| {item['setting']} | {best_model} | {primary_metric} "
+            f"| {best_primary:.4f} | {ci_rows} | {storage_human} |"
+        )
     lines.append("")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines), encoding="utf-8")
@@ -289,7 +322,14 @@ def main() -> None:
             ]
             if not args.no_reuse_cache:
                 extract_command.append("--reuse-cache")
-            command_log.append(_run(extract_command, cwd=repo_root))
+            extract_record = _run(extract_command, cwd=repo_root)
+            command_log.append(extract_record)
+            extraction_payload: dict[str, Any] = {}
+            try:
+                extraction_payload = _parse_last_json(str(extract_record.get("stdout", "")))
+            except ValueError:
+                extraction_payload = {}
+            storage_estimate = extraction_payload.get("storage_estimate", {})
 
             for seed in args.seeds:
                 command_log.append(
@@ -324,20 +364,30 @@ def main() -> None:
 
             aggregate_payload = _load_json(run_root / "aggregate_metrics.json")
             summary_by_model = aggregate_payload.get("summary_by_model", [])
-            best_model = aggregate_payload.get("best_model_by_mean_pr_auc")
-            best_pr_auc = float("nan")
+            best_model = aggregate_payload.get("best_model_by_primary_metric")
+            if best_model is None:
+                best_model = aggregate_payload.get("best_model_by_mean_pr_auc")
+            primary_metric = str(aggregate_payload.get("primary_metric", "pr_auc"))
+            metric_key = f"{primary_metric}_mean"
+            best_primary_metric = float("nan")
             for row in summary_by_model:
                 if row.get("model") == best_model:
-                    best_pr_auc = float(row.get("pr_auc_mean", float("nan")))
+                    best_primary_metric = float(
+                        row.get(metric_key, row.get("pr_auc_mean", float("nan")))
+                    )
                     break
             per_setting_summary.append(
                 {
                     "setting": setting_name,
                     "run_root": str(run_root),
                     "best_model": best_model,
-                    "best_pr_auc_mean": best_pr_auc,
+                    "primary_metric": primary_metric,
+                    "best_primary_metric_mean": best_primary_metric,
+                    "best_pr_auc_mean": best_primary_metric,
                     "num_ci_records": len(aggregate_payload.get("ci_records", [])),
                     "num_runs": int(aggregate_payload.get("num_runs", 0)),
+                    "storage_total_human": storage_estimate.get("total_human"),
+                    "storage_total_bytes_estimate": storage_estimate.get("total_bytes_estimate"),
                 }
             )
         else:
@@ -366,19 +416,23 @@ def main() -> None:
                 for row in aggregate_payload.get("fold_aggregate_by_model", [])
                 if row.get("agg_type") == "mean_seeds"
             ]
+            primary_metric = str(aggregate_payload.get("primary_metric", "pr_auc"))
+            metric_key = f"{primary_metric}_mean"
             best_model = None
-            best_pr_auc = float("nan")
+            best_primary_metric = float("nan")
             for row in summary_rows:
-                pr_auc_mean = float(row.get("pr_auc_mean", float("nan")))
-                if best_model is None or pr_auc_mean > best_pr_auc:
+                primary_value = float(row.get(metric_key, row.get("pr_auc_mean", float("nan"))))
+                if best_model is None or primary_value > best_primary_metric:
                     best_model = row.get("model")
-                    best_pr_auc = pr_auc_mean
+                    best_primary_metric = primary_value
             per_setting_summary.append(
                 {
                     "setting": setting_name,
                     "run_root": str(run_root),
                     "best_model": best_model,
-                    "best_pr_auc_mean": best_pr_auc,
+                    "primary_metric": primary_metric,
+                    "best_primary_metric_mean": best_primary_metric,
+                    "best_pr_auc_mean": best_primary_metric,
                     "num_ci_records": len(aggregate_payload.get("paired_delta_records", [])),
                     "num_runs": int(aggregate_payload.get("num_folds", 0)),
                 }

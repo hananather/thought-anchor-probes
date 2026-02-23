@@ -239,6 +239,16 @@ def build_results_block(
 ) -> str:
     """Build the final README experiment results markdown block."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    pilot_primary_metric = str(pilot_aggregate.get("primary_metric", "pr_auc"))
+    full_primary_metric = str(full_aggregate.get("primary_metric", "pr_auc"))
+    pilot_metric_label = "PR AUC" if pilot_primary_metric == "pr_auc" else "Spearman"
+    full_metric_label = "PR AUC" if full_primary_metric == "pr_auc" else "Spearman"
+    pilot_best_model = pilot_aggregate.get(
+        "best_model_by_primary_metric", pilot_aggregate.get("best_model_by_mean_pr_auc")
+    )
+    full_best_model = full_aggregate.get(
+        "best_model_by_primary_metric", full_aggregate.get("best_model_by_mean_pr_auc")
+    )
 
     lines = [
         f"Last updated: {now}",
@@ -276,7 +286,7 @@ def build_results_block(
         "### Pilot Mean and Std Across Seeds",
         format_summary_table(pilot_aggregate["summary_by_model"]),
         "",
-        f"- Pilot best model by mean PR AUC: `{pilot_aggregate.get('best_model_by_mean_pr_auc')}`",
+        f"- Pilot best model by mean {pilot_metric_label}: `{pilot_best_model}`",
         "",
         "### Pilot Tripwire Outcomes",
         format_tripwire_table(pilot_seed_metrics),
@@ -293,7 +303,7 @@ def build_results_block(
         "### Full Mean and Std Across Seeds",
         format_summary_table(full_aggregate["summary_by_model"]),
         "",
-        f"- Full best model by mean PR AUC: `{full_aggregate.get('best_model_by_mean_pr_auc')}`",
+        f"- Full best model by mean {full_metric_label}: `{full_best_model}`",
         "",
         "### Full Tripwire Outcomes",
         format_tripwire_table(full_seed_metrics),
@@ -518,8 +528,12 @@ def main() -> None:
     summary = {
         "verification": verification,
         "span_pass_rate": span_pass_rate,
-        "pilot_best_model": pilot_aggregate.get("best_model_by_mean_pr_auc"),
-        "full_best_model": full_aggregate.get("best_model_by_mean_pr_auc"),
+        "pilot_best_model": pilot_aggregate.get(
+            "best_model_by_primary_metric", pilot_aggregate.get("best_model_by_mean_pr_auc")
+        ),
+        "full_best_model": full_aggregate.get(
+            "best_model_by_primary_metric", full_aggregate.get("best_model_by_mean_pr_auc")
+        ),
         "readme_path": str(readme_path),
         "commands_executed": len(commands),
     }
