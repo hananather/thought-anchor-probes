@@ -1,8 +1,8 @@
 # Thought Anchor Probes: AGENTS.md
 
 ## Scope
-- Use Qwen-14B as the default model for scaling runs.
-- Keep Llama-8B as an optional replication setting.
+- Use the full four-setting grid as the default scaling run.
+- Keep Qwen-14B as the primary paper model.
 
 ## Memory Notes
 - Primary model: `deepseek-ai/DeepSeek-R1-Distill-Qwen-14B`.
@@ -10,19 +10,17 @@
 - Dataset repo: `uzaymacar/math-rollouts`.
 - Sampling setup: `temperature_0.6_top_p_0.95`.
 - Default split fractions: `0.7 / 0.15 / 0.15`.
-- Default scaling runner uses only Qwen configs.
+- Default scaling runner uses Llama-8B and Qwen-14B settings.
 
 ## Run Commands
-- Default Qwen-only run:
+- Default four-setting run:
 ```bash
 python scripts/run_scaling_grid.py --seeds 0 1 2 3 4 --no-reuse-cache
 ```
-- Full four-setting run:
+- Qwen-only run:
 ```bash
 python scripts/run_scaling_grid.py \
   --configs \
-  configs/scaling_llama_correct.yaml \
-  configs/scaling_llama_incorrect.yaml \
   configs/scaling_qwen_correct.yaml \
   configs/scaling_qwen_incorrect.yaml \
   --seeds 0 1 2 3 4 --no-reuse-cache

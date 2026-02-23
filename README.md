@@ -76,19 +76,19 @@ python scripts/verify_problem_labels.py --config configs/experiment.yaml --probl
 
 ## High-Confidence Scaling Matrix
 - 4-setting configs are available under `configs/scaling_*.yaml`.
-- Default matrix run now focuses on the paper's primary model, Qwen-14B:
+- Default matrix run executes the full four-setting replication grid:
 ```bash
 python scripts/run_scaling_grid.py
 ```
 - This default runs:
+  - `configs/scaling_llama_correct.yaml`
+  - `configs/scaling_llama_incorrect.yaml`
   - `configs/scaling_qwen_correct.yaml`
   - `configs/scaling_qwen_incorrect.yaml`
-- To include Llama-8B replication settings, pass configs explicitly:
+- To run only Qwen-14B settings, pass configs explicitly:
 ```bash
 python scripts/run_scaling_grid.py \
   --configs \
-  configs/scaling_llama_correct.yaml \
-  configs/scaling_llama_incorrect.yaml \
   configs/scaling_qwen_correct.yaml \
   configs/scaling_qwen_incorrect.yaml
 ```
