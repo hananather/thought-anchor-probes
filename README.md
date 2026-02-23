@@ -6,7 +6,7 @@ Train sentence probes that predict counterfactual sentence importance from model
 - Load the ARENA Thought Anchors rollout dataset from Hugging Face.
 - Build sentence labels from `counterfactual_importance_accuracy`.
 - Extract one-layer sentence embeddings with mean pooling.
-- Train position, linear, and small neural probes.
+- Train position, text-only, activation-only, and activation+position probes.
 - Report top-k recall and precision-recall AUC.
 
 ## Why This Matters
@@ -67,6 +67,40 @@ python scripts/verify_problem_labels.py --config configs/experiment.yaml --probl
 - `artifacts/runs/full/metrics_seed_*.json`
 - `artifacts/runs/full/aggregate_metrics.json`
 
+## Cache Safety Invariants
+- `scripts/train_probes.py` validates extraction-time provenance before fitting probes.
+- If you change label or activation config (for example `labels.anchor_percentile`, `labels.drop_last_chunk`, or `activations.model_name_or_path`), re-run `scripts/extract_embeddings.py`.
+- Training now fails fast when split problem IDs are missing from extracted metadata.
+- `scripts/extract_embeddings.py --reuse-cache` skips extraction only when cache provenance matches the active config.
+- Implementation details for maintainers: `docs/cache_provenance_guardrail.md`.
+
+## High-Confidence Scaling Matrix
+- 4-setting configs are available under `configs/scaling_*.yaml`.
+- Default matrix run now focuses on the paper's primary model, Qwen-14B:
+```bash
+python scripts/run_scaling_grid.py
+```
+- This default runs:
+  - `configs/scaling_qwen_correct.yaml`
+  - `configs/scaling_qwen_incorrect.yaml`
+- To include Llama-8B replication settings, pass configs explicitly:
+```bash
+python scripts/run_scaling_grid.py \
+  --configs \
+  configs/scaling_llama_correct.yaml \
+  configs/scaling_llama_incorrect.yaml \
+  configs/scaling_qwen_correct.yaml \
+  configs/scaling_qwen_incorrect.yaml
+```
+- RunPod memory: use at least 48 GB VRAM for stable 14B extraction runs.
+- RunPod dependency contract (for reproducible VRAM/runtime behavior):
+```bash
+uv pip install -e . --system -c constraints/runpod.txt
+python -c "import torch, transformers; print(torch.__version__, transformers.__version__)"
+```
+- Expected preflight versions: `2.9.1 4.57.3`.
+- RunPod execution guide: `docs/runpod_scaling_runbook.md`.
+
 ## Repo Layout
 - `src/ta_probe/data_loading.py`: dataset listing and fast metadata loading.
 - `src/ta_probe/labels.py`: anchor labels from counterfactual scores.
@@ -77,6 +111,7 @@ python scripts/verify_problem_labels.py --config configs/experiment.yaml --probl
 - `src/ta_probe/aggregate.py`: multi-seed metric aggregation.
 - `src/ta_probe/readme_update.py`: deterministic README marker updates.
 - `scripts/run_experiments.py`: end-to-end pilot + full orchestration.
+- `scripts/run_scaling_grid.py`: four-setting scaling matrix orchestration.
 - `tests/`: unit tests for spans, labels, and metrics.
 
 ## Experiment Results

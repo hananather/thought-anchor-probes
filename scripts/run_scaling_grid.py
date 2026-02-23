@@ -18,8 +18,6 @@ from ta_probe.config import ensure_parent_dirs, load_config
 from ta_probe.data_loading import create_splits, list_problem_ids, sample_problem_ids, write_json
 
 DEFAULT_CONFIGS = [
-    "configs/scaling_llama_correct.yaml",
-    "configs/scaling_llama_incorrect.yaml",
     "configs/scaling_qwen_correct.yaml",
     "configs/scaling_qwen_incorrect.yaml",
 ]
