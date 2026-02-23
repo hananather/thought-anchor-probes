@@ -163,6 +163,9 @@ python scripts/plan_deferrals.py \
 
 ## High-Confidence Scaling Matrix
 - 4-setting configs are available under `configs/scaling_*.yaml`.
+- Primary metric is target-mode aware for selection and LOPO deltas:
+  - `anchor_binary` -> `pr_auc`
+  - `importance_abs` / `importance_signed` -> `spearman`
 - Default matrix run executes the full four-setting replication grid:
 ```bash
 python scripts/run_scaling_grid.py
@@ -361,60 +364,6 @@ Run the full Thought Anchor probe plan with pilot and full stages.
 
 ## Scaling Grid Results
 
-Four-setting replication matrix run on an NVIDIA L40S (44.4 GB VRAM), 5 seeds per setting, 20 shared problems (train=14, val=3, test=3).
-
-### Summary
-
-| Setting | Best Model | Mean PR-AUC | Spearman |
-|---|---|---:|---:|
-| Llama-8B correct | mlp_probe | 0.1682 | 0.2545 |
-| Llama-8B incorrect | position_baseline | 0.1892 | 0.2155 |
-| Qwen-14B correct | position_baseline | 0.1801 | 0.4799 |
-| Qwen-14B incorrect | mlp_probe | 0.1411 | 0.1520 |
-
-### Per-Setting Model Comparison (Test Set, 5-seed mean)
-
-#### Llama-8B Correct
-| Model | PR-AUC | std | Spearman |
-|---|---:|---:|---:|
-| mlp_probe | 0.1682 | 0.0202 | 0.2545 |
-| activations_plus_position | 0.1679 | 0.0000 | 0.2250 |
-| linear_probe | 0.1664 | 0.0000 | 0.2157 |
-| position_baseline | 0.1625 | 0.0000 | 0.5125 |
-| text_only_baseline | 0.1032 | 0.0000 | -0.0135 |
-
-#### Llama-8B Incorrect
-| Model | PR-AUC | std | Spearman |
-|---|---:|---:|---:|
-| position_baseline | 0.1892 | 0.0000 | 0.2155 |
-| activations_plus_position | 0.1319 | 0.0000 | -0.0171 |
-| linear_probe | 0.1272 | 0.0000 | -0.0330 |
-| mlp_probe | 0.1265 | 0.0122 | 0.0573 |
-| text_only_baseline | 0.0998 | 0.0000 | -0.0367 |
-
-#### Qwen-14B Correct
-| Model | PR-AUC | std | Spearman |
-|---|---:|---:|---:|
-| position_baseline | 0.1801 | 0.0000 | 0.4799 |
-| mlp_probe | 0.1436 | 0.0272 | 0.2601 |
-| activations_plus_position | 0.1190 | 0.0000 | 0.1773 |
-| linear_probe | 0.1187 | 0.0000 | 0.1703 |
-| text_only_baseline | 0.0961 | 0.0000 | 0.0876 |
-
-#### Qwen-14B Incorrect
-| Model | PR-AUC | std | Spearman |
-|---|---:|---:|---:|
-| mlp_probe | 0.1411 | 0.0083 | 0.1520 |
-| linear_probe | 0.1249 | 0.0000 | 0.0591 |
-| activations_plus_position | 0.1249 | 0.0000 | 0.0594 |
-| text_only_baseline | 0.1186 | 0.0000 | 0.0960 |
-| position_baseline | 0.1107 | 0.0000 | 0.1379 |
-
-### Bootstrap CI: activations_plus_position vs Baselines
-
-| Setting | vs position_baseline (delta) | CI excludes 0 | vs text_only_baseline (delta) | CI excludes 0 |
-|---|---:|---|---:|---|
-| Llama-8B correct | +0.0070 | 0/5 seeds | +0.0628 | 5/5 seeds |
-| Llama-8B incorrect | -0.0560 | 5/5 seeds | +0.0289 | 0/5 seeds |
-| Qwen-14B correct | -0.0768 | 0/5 seeds | +0.0240 | 0/5 seeds |
-| Qwen-14B incorrect | +0.0116 | 5/5 seeds | +0.0133 | 0/5 seeds |
+<!-- SCALING_RESULTS_START -->
+Run `python scripts/run_scaling_grid.py --readme-path README.md` to refresh this section.
+<!-- SCALING_RESULTS_END -->
