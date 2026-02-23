@@ -53,6 +53,12 @@ def main() -> None:
     config = load_config(args.config)
     ensure_parent_dirs(config)
 
+    if config.split.strategy != "single_split":
+        raise ValueError(
+            "train_probes.py only supports split.strategy=single_split. "
+            "Use scripts/run_lopo_cv.py for LOPO evaluation."
+        )
+
     random_seed = config.training.random_seed if args.seed is None else int(args.seed)
     metrics_output_path = with_run_suffix(config.paths.metrics_json, args.run_name)
     predictions_output_path = with_run_suffix(config.paths.predictions_parquet, args.run_name)

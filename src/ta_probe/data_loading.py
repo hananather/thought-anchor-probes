@@ -133,6 +133,44 @@ def create_splits(
     return {"train": train_ids, "val": val_ids, "test": test_ids}
 
 
+def create_lopo_folds(
+    problem_ids: list[int],
+    *,
+    val_fraction: float,
+) -> dict[int, dict[str, list[int]]]:
+    """Create leave-one-problem-out folds with deterministic validation selection."""
+    unique_ids = sorted({int(problem_id) for problem_id in problem_ids})
+    if len(unique_ids) < 2:
+        msg = "Need at least 2 problems to build LOPO folds."
+        raise ValueError(msg)
+
+    folds: dict[int, dict[str, list[int]]] = {}
+    for test_id in unique_ids:
+        remaining = [pid for pid in unique_ids if pid != test_id]
+        n_remaining = len(remaining)
+        if n_remaining < 1:
+            msg = "LOPO fold would have empty train/val set."
+            raise ValueError(msg)
+        val_count = max(1, int(round(val_fraction * n_remaining)))
+        if val_count >= n_remaining:
+            val_count = n_remaining - 1
+        if val_count < 1:
+            msg = "LOPO fold would have empty validation set."
+            raise ValueError(msg)
+        val_ids = sorted(remaining[:val_count])
+        train_ids = sorted(remaining[val_count:])
+        if not train_ids:
+            msg = "LOPO fold would have empty train set."
+            raise ValueError(msg)
+        folds[int(test_id)] = {
+            "train": train_ids,
+            "val": val_ids,
+            "test": [int(test_id)],
+        }
+
+    return folds
+
+
 def write_json(path: str | Path, payload: dict[str, Any] | list[Any]) -> None:
     """Write JSON with stable formatting."""
     output_path = Path(path)

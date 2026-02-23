@@ -15,7 +15,13 @@ from typing import Any
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from ta_probe.config import ensure_parent_dirs, load_config
-from ta_probe.data_loading import create_splits, list_problem_ids, sample_problem_ids, write_json
+from ta_probe.data_loading import (
+    create_lopo_folds,
+    create_splits,
+    list_problem_ids,
+    sample_problem_ids,
+    write_json,
+)
 
 DEFAULT_CONFIGS = [
     "configs/scaling_llama_correct.yaml",
@@ -30,6 +36,8 @@ PARITY_FIELDS = (
     ("training", "random_seed"),
     ("dataset", "seed"),
     ("training", "k_values"),
+    ("training", "best_of_k"),
+    ("split", "strategy"),
 )
 
 
@@ -174,14 +182,23 @@ def _write_markdown_summary(
         "# Scaling Matrix Summary",
         "",
         f"- Shared problems: {len(shared_ids)}",
-        (
-            f"- Shared splits: train={len(shared_splits['train'])}, "
-            f"val={len(shared_splits['val'])}, test={len(shared_splits['test'])}"
-        ),
-        "",
-        "| Setting | Best model by mean PR AUC | Mean PR AUC (best) | CI rows |",
-        "|---|---|---:|---:|",
     ]
+    if {"train", "val", "test"}.issubset(shared_splits.keys()):
+        lines.append(
+            (
+                f"- Shared splits: train={len(shared_splits['train'])}, "
+                f"val={len(shared_splits['val'])}, test={len(shared_splits['test'])}"
+            )
+        )
+    else:
+        lines.append(f"- LOPO folds: {len(shared_splits)}")
+    lines.extend(
+        [
+            "",
+            "| Setting | Best model by mean PR AUC | Mean PR AUC (best) | CI rows |",
+            "|---|---|---:|---:|",
+        ]
+    )
     for item in per_setting:
         best_model = item.get("best_model")
         best_pr_auc = float(item.get("best_pr_auc_mean", float("nan")))
@@ -224,13 +241,20 @@ def main() -> None:
     split_seed = configs[0].training.random_seed
     sampling_seed = configs[0].dataset.seed
     sampled_ids = sample_problem_ids(shared_ids, num_problems=num_problems, seed=sampling_seed)
-    shared_splits = create_splits(
-        sampled_ids,
-        train_fraction=configs[0].training.train_fraction,
-        val_fraction=configs[0].training.val_fraction,
-        test_fraction=configs[0].training.test_fraction,
-        seed=split_seed,
-    )
+    split_strategy = configs[0].split.strategy
+    if split_strategy == "single_split":
+        shared_splits = create_splits(
+            sampled_ids,
+            train_fraction=configs[0].training.train_fraction,
+            val_fraction=configs[0].training.val_fraction,
+            test_fraction=configs[0].training.test_fraction,
+            seed=split_seed,
+        )
+    else:
+        shared_splits = create_lopo_folds(
+            sampled_ids,
+            val_fraction=configs[0].training.val_fraction,
+        )
 
     shared_ids_path = Path(args.shared_problem_ids)
     shared_splits_path = Path(args.shared_splits)
@@ -238,78 +262,125 @@ def main() -> None:
     write_json(shared_splits_path, shared_splits)
     for config in configs:
         write_json(config.paths.problem_ids_json, sampled_ids)
-        write_json(config.paths.splits_json, shared_splits)
+        if split_strategy == "single_split":
+            write_json(config.paths.splits_json, shared_splits)
 
     command_log: list[dict[str, Any]] = []
     per_setting_summary: list[dict[str, Any]] = []
 
     for config_path, config in zip(config_paths, configs, strict=True):
         setting_name = f"{config.dataset.model_dir}__{config.dataset.split_dir}"
-        run_root = Path(config.paths.metrics_json).parent
-        failure_log = run_root / "extraction_failures.json"
+        if split_strategy == "single_split":
+            run_root = Path(config.paths.metrics_json).parent
+            failure_log = run_root / "extraction_failures.json"
 
-        extract_command = [
-            "python",
-            "scripts/extract_embeddings.py",
-            "--config",
-            str(config_path),
-            "--problem-ids",
-            str(shared_ids_path),
-            "--skip-failed",
-            "--failure-log",
-            str(failure_log),
-        ]
-        if not args.no_reuse_cache:
-            extract_command.append("--reuse-cache")
-        command_log.append(_run(extract_command, cwd=repo_root))
+            extract_command = [
+                "python",
+                "scripts/extract_embeddings.py",
+                "--config",
+                str(config_path),
+                "--problem-ids",
+                str(shared_ids_path),
+                "--skip-failed",
+                "--failure-log",
+                str(failure_log),
+            ]
+            if not args.no_reuse_cache:
+                extract_command.append("--reuse-cache")
+            command_log.append(_run(extract_command, cwd=repo_root))
 
-        for seed in args.seeds:
+            for seed in args.seeds:
+                command_log.append(
+                    _run(
+                        [
+                            "python",
+                            "scripts/train_probes.py",
+                            "--config",
+                            str(config_path),
+                            "--seed",
+                            str(seed),
+                            "--run-name",
+                            f"seed_{seed}",
+                        ],
+                        cwd=repo_root,
+                    )
+                )
+
             command_log.append(
                 _run(
                     [
                         "python",
-                        "scripts/train_probes.py",
-                        "--config",
-                        str(config_path),
-                        "--seed",
-                        str(seed),
-                        "--run-name",
-                        f"seed_{seed}",
+                        "scripts/aggregate_runs.py",
+                        "--run-root",
+                        str(run_root),
+                        "--best-of-k",
+                        str(config.training.best_of_k),
                     ],
                     cwd=repo_root,
                 )
             )
 
-        command_log.append(
-            _run(
-                [
-                    "python",
-                    "scripts/aggregate_runs.py",
-                    "--run-root",
-                    str(run_root),
-                ],
-                cwd=repo_root,
+            aggregate_payload = _load_json(run_root / "aggregate_metrics.json")
+            summary_by_model = aggregate_payload.get("summary_by_model", [])
+            best_model = aggregate_payload.get("best_model_by_mean_pr_auc")
+            best_pr_auc = float("nan")
+            for row in summary_by_model:
+                if row.get("model") == best_model:
+                    best_pr_auc = float(row.get("pr_auc_mean", float("nan")))
+                    break
+            per_setting_summary.append(
+                {
+                    "setting": setting_name,
+                    "run_root": str(run_root),
+                    "best_model": best_model,
+                    "best_pr_auc_mean": best_pr_auc,
+                    "num_ci_records": len(aggregate_payload.get("ci_records", [])),
+                    "num_runs": int(aggregate_payload.get("num_runs", 0)),
+                }
             )
-        )
+        else:
+            run_name = f"scaling_{setting_name}"
+            run_root = repo_root / "artifacts" / "runs" / run_name
+            lopo_command = [
+                "python",
+                "scripts/run_lopo_cv.py",
+                "--config",
+                str(config_path),
+                "--run-root",
+                str(run_root),
+                "--problem-ids",
+                str(shared_ids_path),
+                "--seeds",
+                *[str(seed) for seed in args.seeds],
+                "--skip-failed",
+            ]
+            if not args.no_reuse_cache:
+                lopo_command.append("--reuse-cache")
+            command_log.append(_run(lopo_command, cwd=repo_root))
 
-        aggregate_payload = _load_json(run_root / "aggregate_metrics.json")
-        summary_by_model = aggregate_payload.get("summary_by_model", [])
-        best_model = aggregate_payload.get("best_model_by_mean_pr_auc")
-        best_pr_auc = float("nan")
-        for row in summary_by_model:
-            if row.get("model") == best_model:
-                best_pr_auc = float(row.get("pr_auc_mean", float("nan")))
-                break
-        per_setting_summary.append(
-            {
-                "setting": setting_name,
-                "run_root": str(run_root),
-                "best_model": best_model,
-                "best_pr_auc_mean": best_pr_auc,
-                "num_ci_records": len(aggregate_payload.get("ci_records", [])),
-                "num_runs": int(aggregate_payload.get("num_runs", 0)),
-            }
-        )
+            aggregate_payload = _load_json(run_root / "aggregate_lopo_metrics.json")
+            summary_rows = [
+                row
+                for row in aggregate_payload.get("fold_aggregate_by_model", [])
+                if row.get("agg_type") == "mean_seeds"
+            ]
+            best_model = None
+            best_pr_auc = float("nan")
+            for row in summary_rows:
+                pr_auc_mean = float(row.get("pr_auc_mean", float("nan")))
+                if best_model is None or pr_auc_mean > best_pr_auc:
+                    best_model = row.get("model")
+                    best_pr_auc = pr_auc_mean
+            per_setting_summary.append(
+                {
+                    "setting": setting_name,
+                    "run_root": str(run_root),
+                    "best_model": best_model,
+                    "best_pr_auc_mean": best_pr_auc,
+                    "num_ci_records": len(aggregate_payload.get("paired_delta_records", [])),
+                    "num_runs": int(aggregate_payload.get("num_folds", 0)),
+                }
+            )
 
     markdown_path = repo_root / "artifacts" / "scaling" / "scaling_summary.md"
     _write_markdown_summary(

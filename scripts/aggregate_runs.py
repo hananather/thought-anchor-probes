@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from ta_probe.aggregate import aggregate_run_metrics
+from ta_probe.aggregate import aggregate_lopo_metrics, aggregate_run_metrics
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,16 +32,50 @@ def parse_args() -> argparse.Namespace:
             "Defaults to <run-root>/aggregate_metrics.md."
         ),
     )
+    parser.add_argument(
+        "--best-of-k",
+        type=int,
+        default=1,
+        help="Select top-k seeds by validation PR AUC for best-of-k reporting.",
+    )
+    parser.add_argument(
+        "--lopo",
+        action="store_true",
+        help="Aggregate LOPO folds instead of single-split seed metrics.",
+    )
+    parser.add_argument(
+        "--bootstrap-iterations",
+        type=int,
+        default=1000,
+        help="Bootstrap iterations for LOPO fold-level deltas.",
+    )
+    parser.add_argument(
+        "--bootstrap-seed",
+        type=int,
+        default=0,
+        help="Bootstrap seed for LOPO fold-level deltas.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    summary = aggregate_run_metrics(
-        run_root=args.run_root,
-        output_json_path=args.output_json,
-        output_md_path=args.output_md,
-    )
+    if args.lopo:
+        summary = aggregate_lopo_metrics(
+            run_root=args.run_root,
+            output_json_path=args.output_json,
+            output_md_path=args.output_md,
+            best_of_k=args.best_of_k,
+            bootstrap_iterations=args.bootstrap_iterations,
+            bootstrap_seed=args.bootstrap_seed,
+        )
+    else:
+        summary = aggregate_run_metrics(
+            run_root=args.run_root,
+            output_json_path=args.output_json,
+            output_md_path=args.output_md,
+            best_of_k=args.best_of_k,
+        )
     print(json.dumps(summary, indent=2, sort_keys=True))
 
 

@@ -63,6 +63,7 @@ class TrainingConfig(BaseModel):
     bootstrap_iterations: int = 1000
     bootstrap_seed: int | None = None
     position_bins: int = 5
+    best_of_k: int = 1
 
     @field_validator("train_fraction", "val_fraction", "test_fraction")
     @classmethod
@@ -88,6 +89,20 @@ class TrainingConfig(BaseModel):
             raise ValueError(msg)
         return value
 
+    @field_validator("best_of_k")
+    @classmethod
+    def validate_best_of_k(cls, value: int) -> int:
+        if value <= 0:
+            msg = "best_of_k must be positive"
+            raise ValueError(msg)
+        return value
+
+
+class SplitConfig(BaseModel):
+    """Split strategy configuration."""
+
+    strategy: Literal["single_split", "lopo_cv"] = "single_split"
+
 
 class PathsConfig(BaseModel):
     """Output and cache paths."""
@@ -109,6 +124,7 @@ class ExperimentConfig(BaseModel):
     labels: LabelConfig = Field(default_factory=LabelConfig)
     activations: ActivationConfig = Field(default_factory=ActivationConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
+    split: SplitConfig = Field(default_factory=SplitConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
 
 
