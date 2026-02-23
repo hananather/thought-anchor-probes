@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ta_probe.aggregate import aggregate_run_metrics
+from ta_probe.aggregate import aggregate_lopo_metrics, aggregate_run_metrics
 
 
 def write_metrics_file(path: Path, seed: int, linear_pr_auc: float, mlp_pr_auc: float) -> None:
@@ -113,3 +113,78 @@ def test_aggregate_includes_ci_summary(tmp_path: Path) -> None:
     summary = aggregate_run_metrics(tmp_path)
     assert len(summary["ci_records"]) == 1
     assert len(summary["ci_summary"]) == 1
+
+
+def _write_lopo_metrics(
+    root: Path,
+    *,
+    fold_id: int,
+    seed: int,
+    act_pr_auc: float,
+    pos_pr_auc: float,
+) -> None:
+    payload = {
+        "seed": seed,
+        "run_name": f"fold_{fold_id}_seed_{seed}",
+        "val": {
+            "activations_plus_position": {
+                "pr_auc": act_pr_auc - 0.1,
+                "spearman_mean": 0.2,
+                "top_5_recall": 0.3,
+                "top_10_recall": 0.4,
+            },
+            "position_baseline": {
+                "pr_auc": pos_pr_auc - 0.1,
+                "spearman_mean": 0.1,
+                "top_5_recall": 0.2,
+                "top_10_recall": 0.3,
+            },
+        },
+        "test": {
+            "activations_plus_position": {
+                "pr_auc": act_pr_auc,
+                "spearman_mean": 0.2,
+                "top_5_recall": 0.3,
+                "top_10_recall": 0.4,
+            },
+            "position_baseline": {
+                "pr_auc": pos_pr_auc,
+                "spearman_mean": 0.1,
+                "top_5_recall": 0.2,
+                "top_10_recall": 0.3,
+            },
+        },
+    }
+    metrics_path = root / f"fold_{fold_id}" / str(seed) / "metrics.json"
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    with metrics_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+
+
+def test_aggregate_lopo_uses_fold_level_deltas(tmp_path: Path) -> None:
+    _write_lopo_metrics(tmp_path, fold_id=1, seed=0, act_pr_auc=0.8, pos_pr_auc=0.5)
+    _write_lopo_metrics(tmp_path, fold_id=1, seed=1, act_pr_auc=0.6, pos_pr_auc=0.5)
+    _write_lopo_metrics(tmp_path, fold_id=2, seed=0, act_pr_auc=0.3, pos_pr_auc=0.6)
+    _write_lopo_metrics(tmp_path, fold_id=2, seed=1, act_pr_auc=0.5, pos_pr_auc=0.4)
+
+    summary = aggregate_lopo_metrics(
+        tmp_path, best_of_k=1, bootstrap_iterations=10, bootstrap_seed=0
+    )
+    deltas = [
+        record
+        for record in summary["paired_delta_records"]
+        if record["comparison"] == "activations_plus_position_minus_position_baseline"
+        and record["agg_type"] == "mean_seeds"
+    ]
+    delta_values = sorted(round(float(record["delta"]), 4) for record in deltas)
+    assert delta_values == [-0.1, 0.2]
+
+    summary_rows = [
+        row
+        for row in summary["paired_delta_summary"]
+        if row["comparison"] == "activations_plus_position_minus_position_baseline"
+        and row["agg_type"] == "mean_seeds"
+    ]
+    assert len(summary_rows) == 1
+    assert summary_rows[0]["n_folds"] == 2
+    assert round(float(summary_rows[0]["mean"]), 4) == 0.05

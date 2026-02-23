@@ -252,6 +252,7 @@ Run the full Thought Anchor probe plan with pilot and full stages.
 - Planned and executed: resampling verification, span checks, pilot gate, full run, and three seeds.
 - Planned and executed: position baseline, text-only baseline, linear probe, MLP probe, and activations+position probe.
 - Planned and executed: problem-level train, validation, and test splits.
+- Recommended for small `N_problems`: LOPO-CV with per-problem paired deltas (see `docs/lopo_cv.md`).
 
 ### Deviations
 #### Minor Changes

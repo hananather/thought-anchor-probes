@@ -1,0 +1,49 @@
+dataset:
+  repo_id: uzaymacar/math-rollouts
+  model_dir: deepseek-r1-distill-llama-8b
+  temp_dir: temperature_0.6_top_p_0.95
+  split_dir: correct_base_solution
+  forced_split_dir: correct_base_solution_forced_answer
+  num_problems: 5
+  seed: 0
+
+labels:
+  counterfactual_field: counterfactual_importance_accuracy
+  anchor_percentile: 90.0
+  drop_last_chunk: true
+
+activations:
+  model_name_or_path: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+  layer_mode: mid
+  layer_index:
+  pooling: mean
+  dtype: float16
+  storage_dtype: float32
+  device: auto
+  batch_size: 1
+
+training:
+  train_fraction: 0.7
+  val_fraction: 0.15
+  test_fraction: 0.15
+  random_seed: 0
+  k_values: [5, 10]
+  mlp_hidden_dim: 100
+  mlp_max_iter: 300
+  bootstrap_iterations: 1000
+  bootstrap_seed:
+  position_bins: 5
+  best_of_k: 1
+
+split:
+  strategy: lopo_cv
+
+paths:
+  problem_ids_json: data/problem_ids_pilot_lopo.json
+  splits_json: data/splits_pilot_lopo.json
+  embeddings_memmap: artifacts/runs/pilot_lopo/sentence_embeddings.dat
+  embeddings_shape_json: artifacts/runs/pilot_lopo/sentence_embeddings_shape.json
+  metadata_parquet: artifacts/runs/pilot_lopo/sentence_metadata.parquet
+  metrics_json: artifacts/runs/pilot_lopo/metrics.json
+  predictions_parquet: artifacts/runs/pilot_lopo/predictions.parquet
+  report_md: artifacts/runs/pilot_lopo/report.md
