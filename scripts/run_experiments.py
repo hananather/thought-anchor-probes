@@ -101,6 +101,21 @@ def load_json(path: str | Path) -> Any:
         return json.load(handle)
 
 
+def normalize_primary_metric_name(metric_name: Any) -> str:
+    normalized = str(metric_name) if metric_name is not None else "pr_auc"
+    if normalized == "spearman_mean":
+        return "spearman"
+    if normalized in {"pr_auc", "spearman"}:
+        return normalized
+    return "pr_auc"
+
+
+def resolve_primary_metric_name(payload: dict[str, Any]) -> str:
+    return normalize_primary_metric_name(
+        payload.get("primary_metric_name", payload.get("primary_metric", "pr_auc"))
+    )
+
+
 def load_seed_metrics(run_root: Path) -> dict[str, dict[str, Any]]:
     """Load per-seed metrics payloads keyed by run label."""
     payloads: dict[str, dict[str, Any]] = {}
@@ -239,8 +254,8 @@ def build_results_block(
 ) -> str:
     """Build the final README experiment results markdown block."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    pilot_primary_metric = str(pilot_aggregate.get("primary_metric", "pr_auc"))
-    full_primary_metric = str(full_aggregate.get("primary_metric", "pr_auc"))
+    pilot_primary_metric = resolve_primary_metric_name(pilot_aggregate)
+    full_primary_metric = resolve_primary_metric_name(full_aggregate)
     pilot_metric_label = "PR AUC" if pilot_primary_metric == "pr_auc" else "Spearman"
     full_metric_label = "PR AUC" if full_primary_metric == "pr_auc" else "Spearman"
     pilot_best_model = pilot_aggregate.get(

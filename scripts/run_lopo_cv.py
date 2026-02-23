@@ -9,12 +9,19 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from ta_probe.activations import extract_and_cache_embeddings
 from ta_probe.aggregate import aggregate_lopo_metrics
-from ta_probe.config import ensure_parent_dirs, load_config
-from ta_probe.data_loading import create_lopo_folds, list_problem_ids, sample_problem_ids, write_json
+from ta_probe.config import ensure_parent_dirs, load_config, resolve_embeddings_memmap_path
+from ta_probe.data_loading import (
+    create_lopo_folds,
+    list_problem_ids,
+    sample_problem_ids,
+    write_json,
+)
 from ta_probe.train import run_training
 
 
@@ -107,6 +114,7 @@ def main() -> None:
 
     run_root = _resolve_run_root(args, config)
     run_root.mkdir(parents=True, exist_ok=True)
+    embeddings_memmap_path = resolve_embeddings_memmap_path(config)
 
     if args.problem_ids is not None:
         available_ids = _load_problem_ids(args.problem_ids)
@@ -125,7 +133,11 @@ def main() -> None:
     if args.max_problems is not None:
         max_allowed = min(max_allowed, int(args.max_problems))
 
-    sampled_ids = sample_problem_ids(available_ids, num_problems=max_allowed, seed=config.dataset.seed)
+    sampled_ids = sample_problem_ids(
+        available_ids,
+        num_problems=max_allowed,
+        seed=config.dataset.seed,
+    )
     if not sampled_ids:
         raise RuntimeError("No problem IDs available for LOPO run")
 
@@ -154,9 +166,15 @@ def main() -> None:
         dtype_name=config.activations.dtype,
         pooling=config.activations.pooling,
         storage_dtype_name=config.activations.storage_dtype,
-        embeddings_memmap_path=config.paths.embeddings_memmap,
+        embeddings_memmap_path=embeddings_memmap_path,
         embeddings_shape_path=config.paths.embeddings_shape_json,
         metadata_path=config.paths.metadata_parquet,
+        vertical_attention_mode=config.activations.vertical_attention.mode,
+        vertical_attention_depth_control=config.activations.vertical_attention.depth_control,
+        vertical_attention_light_last_n_tokens=(
+            config.activations.vertical_attention.light_last_n_tokens
+        ),
+        vertical_attention_full_max_seq_len=config.activations.vertical_attention.full_max_seq_len,
         skip_failed_problems=args.skip_failed,
         failure_log_path=failure_log,
         reuse_cache_if_valid=args.reuse_cache,
@@ -177,7 +195,7 @@ def main() -> None:
 
             run_training(
                 metadata_path=config.paths.metadata_parquet,
-                embeddings_memmap_path=config.paths.embeddings_memmap,
+                embeddings_memmap_path=embeddings_memmap_path,
                 embeddings_shape_path=config.paths.embeddings_shape_json,
                 splits_path=splits_path,
                 metrics_output_path=metrics_path,
@@ -201,11 +219,35 @@ def main() -> None:
                 expected_temp_dir=config.dataset.temp_dir,
                 expected_split_dir=config.dataset.split_dir,
                 expected_compute_dtype=config.activations.dtype,
+                expected_vertical_attention_mode=config.activations.vertical_attention.mode,
+                expected_vertical_attention_depth_control=(
+                    config.activations.vertical_attention.depth_control
+                ),
+                expected_vertical_attention_light_last_n_tokens=(
+                    config.activations.vertical_attention.light_last_n_tokens
+                ),
+                expected_vertical_attention_full_max_seq_len=(
+                    config.activations.vertical_attention.full_max_seq_len
+                ),
+                token_probe_heads=config.training.token_probe_heads,
+                token_probe_mlp_width=config.training.token_probe_mlp_width,
+                token_probe_mlp_depth=config.training.token_probe_mlp_depth,
+                token_probe_batch_size=config.training.token_probe_batch_size,
+                token_probe_max_epochs=config.training.token_probe_max_epochs,
+                token_probe_patience=config.training.token_probe_patience,
+                token_probe_learning_rate=config.training.token_probe_learning_rate,
+                token_probe_weight_decay=config.training.token_probe_weight_decay,
+                token_probe_continuous_loss=config.training.token_probe_continuous_loss,
+                token_probe_device=config.training.token_probe_device,
                 run_tripwires=not args.no_tripwires,
                 run_name=f"fold_{int(fold_id)}_seed_{int(seed)}",
                 target_mode=config.labels.target_mode,
                 residualize_against=config.training.residualize_against,
             )
+            prediction_frame = pd.read_parquet(predictions_path)
+            prediction_frame["fold_id"] = int(fold_id)
+            prediction_frame["seed"] = int(seed)
+            prediction_frame.to_parquet(predictions_path, index=False)
 
     bootstrap_seed = (
         config.training.random_seed

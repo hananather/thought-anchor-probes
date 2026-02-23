@@ -18,6 +18,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="Path to output JSON")
     parser.add_argument("--score-column", required=True, help="Score column name")
     parser.add_argument("--k-values", nargs="+", type=int, default=[5, 10], help="Top-k values")
+    parser.add_argument(
+        "--split",
+        default="test",
+        help=(
+            "Optional split filter when predictions include multiple splits. "
+            "Use 'none' to disable."
+        ),
+    )
+    parser.add_argument(
+        "--split-column",
+        default="split",
+        help="Split column name used for filtering.",
+    )
     return parser.parse_args()
 
 
@@ -28,6 +41,8 @@ def main() -> None:
         output_path=args.output,
         score_column=args.score_column,
         k_values=args.k_values,
+        split=None if str(args.split).lower() == "none" else args.split,
+        split_column=args.split_column,
     )
     print(metrics)
 

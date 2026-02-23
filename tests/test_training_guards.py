@@ -42,24 +42,25 @@ def _write_embeddings(
     shape_path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _write_metadata(path: Path, problem_ids: list[int]) -> None:
+def _write_metadata(path: Path, problem_ids: list[int], include_vertical: bool = False) -> None:
     rows: list[dict[str, object]] = []
     embedding_row = 0
     for problem_id in problem_ids:
         for chunk_idx in [0, 1]:
-            rows.append(
-                {
-                    "problem_id": problem_id,
-                    "chunk_idx": chunk_idx,
-                    "num_chunks": 2,
-                    "chunk_text": f"chunk {chunk_idx} text",
-                    "relative_position": float(chunk_idx),
-                    "token_count": 8,
-                    "embedding_row": embedding_row,
-                    "anchor": chunk_idx,
-                    "importance_score": float(chunk_idx),
-                }
-            )
+            row: dict[str, object] = {
+                "problem_id": problem_id,
+                "chunk_idx": chunk_idx,
+                "num_chunks": 2,
+                "chunk_text": f"chunk {chunk_idx} text",
+                "relative_position": float(chunk_idx),
+                "token_count": 8,
+                "embedding_row": embedding_row,
+                "anchor": chunk_idx,
+                "importance_score": float(chunk_idx),
+            }
+            if include_vertical:
+                row["vertical_score"] = float(chunk_idx) * 0.1 + 0.1
+            rows.append(row)
             embedding_row += 1
     pd.DataFrame(rows).to_parquet(path, index=False)
 
@@ -207,3 +208,43 @@ def test_run_training_fails_when_compute_dtype_mismatch(tmp_path: Path) -> None:
             expected_compute_dtype="float32",
             run_tripwires=False,
         )
+
+
+def test_run_training_adds_vertical_models_when_scores_present(tmp_path: Path) -> None:
+    metadata_path = tmp_path / "metadata.parquet"
+    emb_path = tmp_path / "embeddings.dat"
+    shape_path = tmp_path / "shape.json"
+    splits_path = tmp_path / "splits.json"
+
+    _write_metadata(metadata_path, problem_ids=[1, 2, 3], include_vertical=True)
+    _write_embeddings(
+        path=emb_path,
+        shape_path=shape_path,
+        rows=6,
+        hidden_dim=4,
+        include_provenance=True,
+    )
+    _write_splits(splits_path, train=[1], val=[2], test=[3])
+
+    metrics = run_training(
+        metadata_path=metadata_path,
+        embeddings_memmap_path=emb_path,
+        embeddings_shape_path=shape_path,
+        splits_path=splits_path,
+        metrics_output_path=tmp_path / "metrics.json",
+        predictions_output_path=tmp_path / "predictions.parquet",
+        random_seed=0,
+        k_values=[1],
+        mlp_hidden_dim=4,
+        mlp_max_iter=10,
+        expected_counterfactual_field="counterfactual_importance_accuracy",
+        expected_anchor_percentile=90.0,
+        expected_drop_last_chunk=True,
+        expected_model_name_or_path="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+        run_tripwires=False,
+    )
+
+    assert "vertical_attention_baseline" in metrics["test"]
+    assert "vertical_attention_plus_position" in metrics["test"]
+    assert metrics["has_vertical_scores"] is True
+    assert metrics["primary_metric_name"] == "pr_auc"

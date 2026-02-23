@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from ta_probe.activations import extract_and_cache_embeddings
-from ta_probe.config import ensure_parent_dirs, load_config
+from ta_probe.config import ensure_parent_dirs, load_config, resolve_embeddings_memmap_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,6 +58,7 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config)
     ensure_parent_dirs(config)
+    embeddings_memmap_path = resolve_embeddings_memmap_path(config)
 
     problem_ids = load_problem_ids(config.paths.splits_json, args.problem_ids)
 
@@ -77,9 +78,15 @@ def main() -> None:
         dtype_name=config.activations.dtype,
         pooling=config.activations.pooling,
         storage_dtype_name=config.activations.storage_dtype,
-        embeddings_memmap_path=config.paths.embeddings_memmap,
+        embeddings_memmap_path=embeddings_memmap_path,
         embeddings_shape_path=config.paths.embeddings_shape_json,
         metadata_path=config.paths.metadata_parquet,
+        vertical_attention_mode=config.activations.vertical_attention.mode,
+        vertical_attention_depth_control=config.activations.vertical_attention.depth_control,
+        vertical_attention_light_last_n_tokens=(
+            config.activations.vertical_attention.light_last_n_tokens
+        ),
+        vertical_attention_full_max_seq_len=config.activations.vertical_attention.full_max_seq_len,
         skip_failed_problems=args.skip_failed,
         failure_log_path=args.failure_log,
         reuse_cache_if_valid=args.reuse_cache,

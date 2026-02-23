@@ -8,7 +8,9 @@ from ta_probe.train import _build_residual_anchors, _fit_baseline_and_residuals
 
 def _make_frame(problem_id: int, chunk_idx: list[int], target: list[float]) -> pd.DataFrame:
     num_chunks = [max(chunk_idx) + 1] * len(chunk_idx)
-    relative_position = [idx / (num_chunks[0] - 1) if num_chunks[0] > 1 else 0.0 for idx in chunk_idx]
+    relative_position = [
+        idx / (num_chunks[0] - 1) if num_chunks[0] > 1 else 0.0 for idx in chunk_idx
+    ]
     return pd.DataFrame(
         {
             "problem_id": [problem_id] * len(chunk_idx),
@@ -64,8 +66,18 @@ def test_residual_baseline_is_invariant_to_val_test_shift() -> None:
         random_seed=0,
     )
 
-    assert np.allclose(residuals_a["train_hat"], residuals_b["train_hat"])
-    assert np.allclose(residuals_a["train_residual"], residuals_b["train_residual"])
+    np.testing.assert_allclose(
+        residuals_a["train_hat"],
+        residuals_b["train_hat"],
+        rtol=0.0,
+        atol=1e-8,
+    )
+    np.testing.assert_allclose(
+        residuals_a["train_residual"],
+        residuals_b["train_residual"],
+        rtol=0.0,
+        atol=1e-8,
+    )
 
 
 def test_residual_anchor_thresholds_by_problem() -> None:

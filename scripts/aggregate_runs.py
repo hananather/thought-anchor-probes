@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
         "--best-of-k",
         type=int,
         default=1,
-        help="Select top-k seeds by validation PR AUC for best-of-k reporting.",
+        help="Select top-k seeds by validation primary metric for best-of-k reporting.",
     )
     parser.add_argument(
         "--lopo",

@@ -12,6 +12,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 POSITION_FEATURE_COLUMNS = ["chunk_idx", "num_chunks", "relative_position", "token_count"]
+VERTICAL_FEATURE_COLUMN = "vertical_score"
 
 
 def build_position_features(frame: pd.DataFrame) -> np.ndarray:
@@ -29,6 +30,15 @@ def build_text_features(frame: pd.DataFrame) -> np.ndarray:
         msg = "Missing required text feature column: ['chunk_text']"
         raise ValueError(msg)
     values = frame["chunk_text"].fillna("").astype(str).to_numpy(dtype=object)
+    return values
+
+
+def build_vertical_features(frame: pd.DataFrame) -> np.ndarray:
+    """Return per-sentence vertical attention score features."""
+    if VERTICAL_FEATURE_COLUMN not in frame.columns:
+        msg = f"Missing required vertical feature column: ['{VERTICAL_FEATURE_COLUMN}']"
+        raise ValueError(msg)
+    values = frame[VERTICAL_FEATURE_COLUMN].to_numpy(dtype=np.float32).reshape(-1, 1)
     return values
 
 
@@ -142,7 +152,11 @@ def make_position_text_regressor() -> Pipeline:
     """Ridge regressor using both text and position features."""
     preprocessor = ColumnTransformer(
         transformers=[
-            ("text", TfidfVectorizer(ngram_range=(1, 2), min_df=1, max_features=10000), "chunk_text"),
+            (
+                "text",
+                TfidfVectorizer(ngram_range=(1, 2), min_df=1, max_features=10000),
+                "chunk_text",
+            ),
             ("position", StandardScaler(), POSITION_FEATURE_COLUMNS),
         ],
         sparse_threshold=0.3,

@@ -17,9 +17,16 @@ def evaluate_prediction_file(
     output_path: str | Path,
     score_column: str,
     k_values: list[int],
+    split: str | None = "test",
+    split_column: str = "split",
 ) -> dict[str, Any]:
     """Evaluate one score column from a saved predictions parquet."""
     frame = pd.read_parquet(predictions_path)
+    if split is not None and split_column in frame.columns:
+        frame = frame[frame[split_column] == split].copy()
+    if frame.empty:
+        msg = "No prediction rows available for requested split filter."
+        raise ValueError(msg)
     metrics = evaluate_frame(
         frame,
         score_col=score_column,

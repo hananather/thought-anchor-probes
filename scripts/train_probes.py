@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from ta_probe.config import ensure_parent_dirs, load_config
+from ta_probe.config import ensure_parent_dirs, load_config, resolve_embeddings_memmap_path
 from ta_probe.train import run_training
 
 
@@ -60,12 +60,13 @@ def main() -> None:
         )
 
     random_seed = config.training.random_seed if args.seed is None else int(args.seed)
+    embeddings_memmap_path = resolve_embeddings_memmap_path(config)
     metrics_output_path = with_run_suffix(config.paths.metrics_json, args.run_name)
     predictions_output_path = with_run_suffix(config.paths.predictions_parquet, args.run_name)
 
     metrics = run_training(
         metadata_path=config.paths.metadata_parquet,
-        embeddings_memmap_path=config.paths.embeddings_memmap,
+        embeddings_memmap_path=embeddings_memmap_path,
         embeddings_shape_path=config.paths.embeddings_shape_json,
         splits_path=config.paths.splits_json,
         metrics_output_path=metrics_output_path,
@@ -89,6 +90,26 @@ def main() -> None:
         expected_temp_dir=config.dataset.temp_dir,
         expected_split_dir=config.dataset.split_dir,
         expected_compute_dtype=config.activations.dtype,
+        expected_vertical_attention_mode=config.activations.vertical_attention.mode,
+        expected_vertical_attention_depth_control=(
+            config.activations.vertical_attention.depth_control
+        ),
+        expected_vertical_attention_light_last_n_tokens=(
+            config.activations.vertical_attention.light_last_n_tokens
+        ),
+        expected_vertical_attention_full_max_seq_len=(
+            config.activations.vertical_attention.full_max_seq_len
+        ),
+        token_probe_heads=config.training.token_probe_heads,
+        token_probe_mlp_width=config.training.token_probe_mlp_width,
+        token_probe_mlp_depth=config.training.token_probe_mlp_depth,
+        token_probe_batch_size=config.training.token_probe_batch_size,
+        token_probe_max_epochs=config.training.token_probe_max_epochs,
+        token_probe_patience=config.training.token_probe_patience,
+        token_probe_learning_rate=config.training.token_probe_learning_rate,
+        token_probe_weight_decay=config.training.token_probe_weight_decay,
+        token_probe_continuous_loss=config.training.token_probe_continuous_loss,
+        token_probe_device=config.training.token_probe_device,
         run_tripwires=not args.no_tripwires,
         run_name=args.run_name,
         target_mode=config.labels.target_mode,

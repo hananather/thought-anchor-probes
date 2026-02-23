@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
-from ta_probe.models import build_text_features, make_text_baseline
+from ta_probe.models import build_text_features, build_vertical_features, make_text_baseline
 
 
 def test_build_text_features_returns_object_array() -> None:
@@ -28,3 +29,10 @@ def test_text_baseline_fits_and_predicts() -> None:
     model.fit(build_text_features(frame), labels)
     scores = model.predict_proba(build_text_features(frame))[:, 1]
     assert len(scores) == len(frame)
+
+
+def test_build_vertical_features_returns_2d_array() -> None:
+    frame = pd.DataFrame({"vertical_score": [0.1, 0.2, 0.3]})
+    values = build_vertical_features(frame)
+    assert values.shape == (3, 1)
+    assert values.dtype == np.float32

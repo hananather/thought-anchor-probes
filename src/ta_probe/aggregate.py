@@ -29,10 +29,14 @@ LOPO_COMPARISONS = [
 
 FOLD_PATTERN = re.compile(r"fold_(\d+)")
 CONTINUOUS_TARGET_MODES = {"importance_abs", "importance_signed"}
-PRIMARY_METRIC_BY_TARGET_MODE = {
+PRIMARY_METRIC_NAME_BY_TARGET_MODE = {
     "anchor_binary": "pr_auc",
-    "importance_abs": "spearman_mean",
-    "importance_signed": "spearman_mean",
+    "importance_abs": "spearman",
+    "importance_signed": "spearman",
+}
+PRIMARY_METRIC_COLUMN_BY_NAME = {
+    "pr_auc": "pr_auc",
+    "spearman": "spearman_mean",
 }
 
 
@@ -78,19 +82,38 @@ def _load_metrics_file(path: Path) -> dict[str, Any]:
 
 def _normalize_target_mode(target_mode: Any) -> str:
     mode = str(target_mode) if target_mode is not None else "anchor_binary"
-    if mode in PRIMARY_METRIC_BY_TARGET_MODE:
+    if mode in PRIMARY_METRIC_NAME_BY_TARGET_MODE:
         return mode
     return "anchor_binary"
 
 
+def _normalize_primary_metric_name(metric_name: Any) -> str:
+    normalized = str(metric_name) if metric_name is not None else "pr_auc"
+    if normalized == "spearman_mean":
+        return "spearman"
+    if normalized in PRIMARY_METRIC_COLUMN_BY_NAME:
+        return normalized
+    return "pr_auc"
+
+
+def _primary_metric_name_for_target_mode(target_mode: str) -> str:
+    return PRIMARY_METRIC_NAME_BY_TARGET_MODE[_normalize_target_mode(target_mode)]
+
+
+def _primary_metric_column_for_name(metric_name: str) -> str:
+    normalized = _normalize_primary_metric_name(metric_name)
+    return PRIMARY_METRIC_COLUMN_BY_NAME[normalized]
+
+
 def _primary_metric_for_target_mode(target_mode: str) -> str:
-    return PRIMARY_METRIC_BY_TARGET_MODE[_normalize_target_mode(target_mode)]
+    # Backward-compatible alias used by older callers/tests.
+    return _primary_metric_column_for_name(_primary_metric_name_for_target_mode(target_mode))
 
 
 def _metric_label(metric_name: str) -> str:
     if metric_name == "pr_auc":
         return "PR AUC"
-    if metric_name == "spearman_mean":
+    if metric_name in {"spearman", "spearman_mean"}:
         return "Spearman"
     return metric_name
 
@@ -258,6 +281,48 @@ def _best_of_k_summary_by_model(
         return pd.DataFrame()
     sort_col = _metric_mean_column(ranking_metric)
     return pd.DataFrame(rows).sort_values(sort_col, ascending=False, ignore_index=True)
+
+
+def _best_seed_by_metric(
+    seed_records: pd.DataFrame,
+    *,
+    ranking_metric: str,
+) -> dict[str, Any] | None:
+    if ranking_metric not in SEED_METRIC_COLUMNS:
+        msg = f"Unsupported ranking metric for best-seed selection: {ranking_metric}"
+        raise ValueError(msg)
+    val_records = seed_records[seed_records["split"] == "val"][
+        ["model", "seed", ranking_metric]
+    ].copy()
+    val_records = val_records.dropna(subset=[ranking_metric])
+    if val_records.empty:
+        return None
+
+    ranked = val_records.sort_values(
+        [ranking_metric, "seed", "model"],
+        ascending=[False, True, True],
+        ignore_index=True,
+    )
+    best_row = ranked.iloc[0]
+    best_model = str(best_row["model"])
+    best_seed = int(best_row["seed"])
+    val_value = float(best_row[ranking_metric])
+
+    test_records = seed_records[
+        (seed_records["split"] == "test")
+        & (seed_records["model"] == best_model)
+        & (seed_records["seed"] == best_seed)
+    ]
+    test_value = float("nan")
+    if not test_records.empty:
+        test_value = float(test_records.iloc[0][ranking_metric])
+
+    return {
+        "model": best_model,
+        "seed": best_seed,
+        "val_primary_metric": val_value,
+        "test_primary_metric": test_value,
+    }
 
 
 def _mean_std_by_model(records: pd.DataFrame) -> pd.DataFrame:
@@ -514,7 +579,10 @@ def _summary_markdown(
         lines.extend(
             [
                 "",
-                f"## Best-of-K by Validation {metric_label} (k={int(best_of_k_records.iloc[0]['k'])})",
+                (
+                    f"## Best-of-K by Validation {metric_label} "
+                    f"(k={int(best_of_k_records.iloc[0]['k'])})"
+                ),
                 "",
                 (
                     "| Model | PR AUC mean | PR AUC std | Spearman mean | Spearman std "
@@ -539,7 +607,10 @@ def _summary_markdown(
                 "",
                 "## Beyond-Position Residual Metrics (Test)",
                 "",
-                "| Model | Residual Spearman mean | Residual Spearman std | Residual PR AUC mean | Residual PR AUC std |",
+                (
+                    "| Model | Residual Spearman mean | Residual Spearman std "
+                    "| Residual PR AUC mean | Residual PR AUC std |"
+                ),
                 "|---|---:|---:|---:|---:|",
             ]
         )
@@ -618,15 +689,18 @@ def aggregate_run_metrics(
         residual_records.extend(_flatten_residual_records(payload, run_label))
 
     target_mode = _resolve_target_mode_set(target_modes)
-    primary_metric = _primary_metric_for_target_mode(target_mode)
+    primary_metric_name = _primary_metric_name_for_target_mode(target_mode)
+    primary_metric_column = _primary_metric_column_for_name(primary_metric_name)
 
     seed_df = pd.DataFrame(records)
-    summary_df = _aggregate_summary(seed_df, ranking_metric=primary_metric)
+    summary_df = _aggregate_summary(seed_df, ranking_metric=primary_metric_column)
     best_of_k_df = _best_of_k_summary_by_model(
         seed_df,
         best_of_k,
-        ranking_metric=primary_metric,
+        # Best-of-k seed selection must follow the target-mode primary metric.
+        ranking_metric=primary_metric_column,
     )
+    best_seed = _best_seed_by_metric(seed_df, ranking_metric=primary_metric_column)
     ci_df = pd.DataFrame(ci_records)
     ci_summary_df = _aggregate_ci_summary(ci_df)
     residual_df = pd.DataFrame(residual_records)
@@ -639,9 +713,11 @@ def aggregate_run_metrics(
         "num_runs": int(seed_df["run_label"].nunique()),
         "num_seed_records": int(len(seed_df)),
         "target_mode": target_mode,
-        "primary_metric": primary_metric,
+        "primary_metric_name": primary_metric_name,
+        "primary_metric": primary_metric_column,
         "best_model_by_primary_metric": best_model,
         "best_model_by_mean_pr_auc": best_model,
+        "best_seed_by_primary_metric": best_seed,
         "seed_records": seed_df.to_dict(orient="records"),
         "summary_by_model": summary_df.to_dict(orient="records"),
         "best_of_k_summary_by_model": best_of_k_df.to_dict(orient="records"),
@@ -669,7 +745,7 @@ def aggregate_run_metrics(
         summary_df,
         best_of_k_df,
         residual_summary_df,
-        ranking_metric=primary_metric,
+        ranking_metric=primary_metric_column,
     )
     ci_markdown = _ci_markdown(ci_df, ci_summary_df)
     if ci_markdown:
@@ -709,7 +785,8 @@ def aggregate_lopo_metrics(
         residual_records.extend(_flatten_residual_records_lopo(payload, run_label, fold_id))
 
     target_mode = _resolve_target_mode_set(target_modes)
-    primary_metric = _primary_metric_for_target_mode(target_mode)
+    primary_metric_name = _primary_metric_name_for_target_mode(target_mode)
+    primary_metric_column = _primary_metric_column_for_name(primary_metric_name)
 
     seed_df = pd.DataFrame(records)
     residual_df = pd.DataFrame(residual_records)
@@ -727,7 +804,12 @@ def aggregate_lopo_metrics(
     )
     fold_mean = fold_mean.merge(seed_counts, on=["fold_id", "model"], how="left")
 
-    selections = _select_best_of_k_seeds(seed_df, best_of_k, ranking_metric=primary_metric)
+    selections = _select_best_of_k_seeds(
+        seed_df,
+        best_of_k,
+        # Best-of-k seed selection must follow the target-mode primary metric.
+        ranking_metric=primary_metric_column,
+    )
     selection_payload: dict[str, dict[str, list[int]]] = {}
     for (fold_id, model), seeds in selections.items():
         selection_payload.setdefault(str(fold_id), {})[str(model)] = list(seeds)
@@ -799,6 +881,16 @@ def aggregate_lopo_metrics(
         columns={column: f"{column}_std" for column in SEED_METRIC_COLUMNS}
     )
     fold_agg = fold_mean_df.merge(fold_std_df, on=["agg_type", "model"], how="left")
+    best_model = None
+    metric_mean_col = _metric_mean_column(primary_metric_column)
+    mean_seed_rows = fold_agg[fold_agg["agg_type"] == "mean_seeds"].copy()
+    if metric_mean_col in mean_seed_rows.columns and not mean_seed_rows.empty:
+        ranked = mean_seed_rows.sort_values(
+            [metric_mean_col, "model"],
+            ascending=[False, True],
+            ignore_index=True,
+        )
+        best_model = ranked.iloc[0]["model"]
 
     delta_records: list[dict[str, Any]] = []
     delta_summaries: list[dict[str, Any]] = []
@@ -806,7 +898,8 @@ def aggregate_lopo_metrics(
         subset = fold_summary[fold_summary["agg_type"] == agg_type].copy()
         deltas = _paired_deltas_by_fold(
             subset,
-            metric=primary_metric,
+            # LOPO paired deltas are computed on the primary metric by target_mode.
+            metric=primary_metric_column,
             comparisons=LOPO_COMPARISONS,
         )
         for record in deltas:
@@ -829,7 +922,9 @@ def aggregate_lopo_metrics(
         "num_folds": int(seed_df["fold_id"].nunique()),
         "num_seed_records": int(len(seed_df)),
         "target_mode": target_mode,
-        "primary_metric": primary_metric,
+        "primary_metric_name": primary_metric_name,
+        "primary_metric": primary_metric_column,
+        "best_model_by_primary_metric": best_model,
         "best_of_k": int(best_of_k),
         "seed_records": seed_df.to_dict(orient="records"),
         "fold_summary_by_model": fold_summary.to_dict(orient="records"),
@@ -859,7 +954,7 @@ def aggregate_lopo_metrics(
         f"- Folds: {summary_payload['num_folds']}",
         f"- Seed records: {summary_payload['num_seed_records']}",
         "",
-        f"## Paired Delta Summary ({_metric_label(primary_metric)}, folds as unit)",
+        f"## Paired Delta Summary ({_metric_label(primary_metric_name)}, folds as unit)",
         "",
         "| Agg | Comparison | Mean | Std | Positive | Folds | CI low | CI high |",
         "|---|---|---:|---:|---:|---:|---:|---:|",
@@ -878,7 +973,10 @@ def aggregate_lopo_metrics(
             [
                 "## Beyond-Position Residual Metrics (Test)",
                 "",
-                "| Agg | Model | Residual Spearman mean | Residual Spearman std | Residual PR AUC mean | Residual PR AUC std |",
+                (
+                    "| Agg | Model | Residual Spearman mean | Residual Spearman std "
+                    "| Residual PR AUC mean | Residual PR AUC std |"
+                ),
                 "|---|---|---:|---:|---:|---:|",
             ]
         )

@@ -144,15 +144,15 @@ def create_lopo_folds(
         msg = "val_fraction must satisfy 0.0 <= val_fraction < 1.0 for LOPO folds."
         raise ValueError(msg)
 
-    if val_fraction > 0.0 and len(unique_ids) < 3:
-        msg = (
-            "Need at least 3 problems to build LOPO folds when val_fraction > 0. "
-            "With only 2 problems, one fold would have empty train or validation."
-        )
-        raise ValueError(msg)
-
-    if val_fraction == 0.0 and len(unique_ids) < 2:
-        msg = "Need at least 2 problems to build LOPO folds when val_fraction == 0."
+    min_required = 3 if val_fraction > 0.0 else 2
+    if len(unique_ids) < min_required:
+        if val_fraction > 0.0:
+            msg = (
+                "Need at least 3 problems for LOPO when val_fraction > 0. "
+                "Use val_fraction=0.0 for 2-problem runs, or add more problems."
+            )
+        else:
+            msg = "Need at least 2 problems for LOPO when val_fraction == 0.0."
         raise ValueError(msg)
 
     folds: dict[int, dict[str, list[int]]] = {}

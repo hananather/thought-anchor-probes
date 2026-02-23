@@ -19,18 +19,20 @@ from ta_probe.metrics import (
 from ta_probe.models import (
     build_position_features,
     build_text_features,
-    make_linear_regressor,
+    build_vertical_features,
     make_linear_probe,
+    make_linear_regressor,
     make_mlp_probe,
     make_mlp_regressor,
-    make_position_regressor,
     make_position_baseline,
+    make_position_regressor,
     make_position_text_regressor,
-    make_text_regressor,
     make_text_baseline,
-    predict_values,
+    make_text_regressor,
     predict_scores,
+    predict_values,
 )
+from ta_probe.token_probes import TokenProbeTrainConfig, seed_everything, train_token_probe
 
 
 def _load_splits(path: str | Path) -> dict[str, list[int]]:
@@ -80,6 +82,10 @@ def _validate_embedding_provenance(
     expected_temp_dir: str | None,
     expected_split_dir: str | None,
     expected_compute_dtype: str | None,
+    expected_vertical_attention_mode: str | None = None,
+    expected_vertical_attention_depth_control: bool | None = None,
+    expected_vertical_attention_light_last_n_tokens: int | None = None,
+    expected_vertical_attention_full_max_seq_len: int | None = None,
 ) -> None:
     """Fail fast when training config does not match extraction-time cache metadata.
 
@@ -99,6 +105,10 @@ def _validate_embedding_provenance(
         "temp_dir": expected_temp_dir,
         "split_dir": expected_split_dir,
         "compute_dtype": expected_compute_dtype,
+        "vertical_attention_mode": expected_vertical_attention_mode,
+        "vertical_attention_depth_control": expected_vertical_attention_depth_control,
+        "vertical_attention_light_last_n_tokens": expected_vertical_attention_light_last_n_tokens,
+        "vertical_attention_full_max_seq_len": expected_vertical_attention_full_max_seq_len,
     }
 
     for key, expected in expected_values.items():
@@ -162,6 +172,34 @@ def _embedding_features(frame: pd.DataFrame, embeddings: np.memmap) -> np.ndarra
     return np.asarray(embeddings[rows], dtype=np.float32)
 
 
+def _mean_features_from_token_spans(
+    frame: pd.DataFrame,
+    token_embeddings: np.memmap,
+    *,
+    hidden_dim: int,
+) -> np.ndarray:
+    if "token_offset" not in frame.columns or "token_length" not in frame.columns:
+        msg = "Token metadata must include token_offset and token_length columns"
+        raise ValueError(msg)
+    offsets = frame["token_offset"].to_numpy(dtype=np.int64)
+    lengths = frame["token_length"].to_numpy(dtype=np.int64)
+    if np.any(lengths <= 0):
+        msg = "token_length must be positive for all rows"
+        raise ValueError(msg)
+
+    features = np.zeros((len(frame), hidden_dim), dtype=np.float32)
+    for idx, (offset, length) in enumerate(zip(offsets, lengths, strict=True)):
+        span = np.asarray(token_embeddings[offset : offset + length], dtype=np.float32)
+        if span.shape[0] != int(length):
+            msg = (
+                f"Token span out of bounds at row {idx}: "
+                f"offset={offset}, length={length}, span_rows={span.shape[0]}"
+            )
+            raise ValueError(msg)
+        features[idx] = span.mean(axis=0)
+    return features
+
+
 def _concat_features(left: np.ndarray, right: np.ndarray) -> np.ndarray:
     return np.concatenate([left, right], axis=1).astype(np.float32, copy=False)
 
@@ -175,6 +213,12 @@ def _resolve_target_col(target_mode: str) -> str:
         return "importance_signed"
     msg = f"Unsupported target_mode: {target_mode}"
     raise ValueError(msg)
+
+
+def _primary_metric_name_for_target_mode(target_mode: str) -> str:
+    if target_mode == "anchor_binary":
+        return "pr_auc"
+    return "spearman"
 
 
 def _evaluate_continuous_frame(
@@ -243,16 +287,32 @@ def _fit_baseline_and_residuals(
 def _build_residual_anchors(
     frame: pd.DataFrame, *, residual_col: str, percentile: float
 ) -> pd.Series:
-    def _threshold(group: pd.DataFrame) -> pd.Series:
-        values = group[residual_col].to_numpy(dtype=np.float32)
-        if values.size == 0:
-            return pd.Series([], dtype=np.int64, index=group.index)
-        threshold = float(np.percentile(values, percentile))
-        return (values >= threshold).astype(np.int64)
+    if frame.empty:
+        return pd.Series([], dtype=np.int64, index=frame.index)
 
-    anchors = frame.groupby("problem_id", group_keys=False).apply(_threshold)
-    anchors = anchors.reindex(frame.index)
+    def _threshold(series: pd.Series) -> pd.Series:
+        values = series.to_numpy(dtype=np.float32)
+        threshold = float(np.percentile(values, percentile))
+        return (series >= threshold).astype(np.int64)
+
+    anchors = frame.groupby("problem_id")[residual_col].transform(_threshold)
     return anchors.astype(np.int64)
+
+
+def _maybe_disable_early_stopping_for_tiny_train_set(model: Any, train_y: np.ndarray) -> None:
+    """Disable sklearn MLP early stopping when class counts are too small."""
+    named_steps = getattr(model, "named_steps", None)
+    if named_steps is None:
+        return
+    for step_name in ("clf", "reg"):
+        estimator = named_steps.get(step_name)
+        if estimator is None or not hasattr(estimator, "early_stopping"):
+            continue
+        if not bool(getattr(estimator, "early_stopping", False)):
+            continue
+        _, counts = np.unique(np.asarray(train_y), return_counts=True)
+        if counts.size == 0 or int(counts.min()) < 2:
+            estimator.set_params(early_stopping=False)
 
 
 def run_training(
@@ -282,12 +342,28 @@ def run_training(
     expected_temp_dir: str | None = None,
     expected_split_dir: str | None = None,
     expected_compute_dtype: str | None = None,
+    expected_vertical_attention_mode: str | None = None,
+    expected_vertical_attention_depth_control: bool | None = None,
+    expected_vertical_attention_light_last_n_tokens: int | None = None,
+    expected_vertical_attention_full_max_seq_len: int | None = None,
+    token_probe_heads: int = 4,
+    token_probe_mlp_width: int = 128,
+    token_probe_mlp_depth: int = 1,
+    token_probe_batch_size: int = 32,
+    token_probe_max_epochs: int = 50,
+    token_probe_patience: int = 5,
+    token_probe_learning_rate: float = 1e-3,
+    token_probe_weight_decay: float = 0.0,
+    token_probe_continuous_loss: str = "huber",
+    token_probe_device: str = "auto",
     run_tripwires: bool = True,
     run_name: str | None = None,
     target_mode: str = "anchor_binary",
     residualize_against: str = "none",
 ) -> dict[str, Any]:
     """Train baseline and probe models, then write metrics and predictions."""
+    seed_everything(random_seed)
+
     metadata = pd.read_parquet(metadata_path)
     shape_payload = _load_shape(embeddings_shape_path)
     _validate_embedding_provenance(
@@ -304,6 +380,10 @@ def run_training(
         expected_temp_dir=expected_temp_dir,
         expected_split_dir=expected_split_dir,
         expected_compute_dtype=expected_compute_dtype,
+        expected_vertical_attention_mode=expected_vertical_attention_mode,
+        expected_vertical_attention_depth_control=expected_vertical_attention_depth_control,
+        expected_vertical_attention_light_last_n_tokens=expected_vertical_attention_light_last_n_tokens,
+        expected_vertical_attention_full_max_seq_len=expected_vertical_attention_full_max_seq_len,
     )
     embeddings = _load_embeddings(embeddings_memmap_path, shape_payload)
     splits = _load_splits(splits_path)
@@ -332,13 +412,43 @@ def run_training(
     val_text_x = build_text_features(val_frame)
     test_text_x = build_text_features(test_frame)
 
-    train_emb_x = _embedding_features(train_frame, embeddings)
-    val_emb_x = _embedding_features(val_frame, embeddings)
-    test_emb_x = _embedding_features(test_frame, embeddings)
+    pooling_mode = str(shape_payload.get("pooling", "mean"))
+    if pooling_mode == "mean":
+        train_emb_x = _embedding_features(train_frame, embeddings)
+        val_emb_x = _embedding_features(val_frame, embeddings)
+        test_emb_x = _embedding_features(test_frame, embeddings)
+    elif pooling_mode == "tokens":
+        hidden_dim = int(shape_payload["hidden_dim"])
+        train_emb_x = _mean_features_from_token_spans(
+            train_frame, embeddings, hidden_dim=hidden_dim
+        )
+        val_emb_x = _mean_features_from_token_spans(
+            val_frame, embeddings, hidden_dim=hidden_dim
+        )
+        test_emb_x = _mean_features_from_token_spans(
+            test_frame, embeddings, hidden_dim=hidden_dim
+        )
+    else:
+        msg = f"Unsupported pooling mode in shape payload: {pooling_mode}"
+        raise ValueError(msg)
 
     train_emb_pos_x = _concat_features(train_emb_x, train_pos_x)
     val_emb_pos_x = _concat_features(val_emb_x, val_pos_x)
     test_emb_pos_x = _concat_features(test_emb_x, test_pos_x)
+
+    has_vertical_scores = (
+        "vertical_score" in metadata.columns
+        and train_frame["vertical_score"].notna().all()
+        and val_frame["vertical_score"].notna().all()
+        and test_frame["vertical_score"].notna().all()
+    )
+    if has_vertical_scores:
+        train_vertical_x = build_vertical_features(train_frame)
+        val_vertical_x = build_vertical_features(val_frame)
+        test_vertical_x = build_vertical_features(test_frame)
+        train_vertical_pos_x = _concat_features(train_vertical_x, train_pos_x)
+        val_vertical_pos_x = _concat_features(val_vertical_x, val_pos_x)
+        test_vertical_pos_x = _concat_features(test_vertical_x, test_pos_x)
 
     if is_continuous:
         models = {
@@ -364,12 +474,34 @@ def run_training(
         "mlp_probe": (train_emb_x, val_emb_x, test_emb_x),
         "activations_plus_position": (train_emb_pos_x, val_emb_pos_x, test_emb_pos_x),
     }
+    if has_vertical_scores:
+        if is_continuous:
+            models["vertical_attention_baseline"] = make_linear_regressor()
+            models["vertical_attention_plus_position"] = make_linear_regressor()
+        else:
+            models["vertical_attention_baseline"] = make_linear_probe(random_seed)
+            models["vertical_attention_plus_position"] = make_linear_probe(random_seed)
+        model_inputs["vertical_attention_baseline"] = (
+            train_vertical_x,
+            val_vertical_x,
+            test_vertical_x,
+        )
+        model_inputs["vertical_attention_plus_position"] = (
+            train_vertical_pos_x,
+            val_vertical_pos_x,
+            test_vertical_pos_x,
+        )
+
+    token_probe_names: list[str] = []
+    if pooling_mode == "tokens":
+        token_probe_names = ["attention_probe", "multimax_probe"]
 
     val_scores: dict[str, np.ndarray] = {}
     test_scores: dict[str, np.ndarray] = {}
 
     for name, model in models.items():
         train_x, val_x, test_x = model_inputs[name]
+        _maybe_disable_early_stopping_for_tiny_train_set(model, train_y)
         model.fit(train_x, train_y)
         if is_continuous:
             cur_val_scores = predict_values(model, val_x)
@@ -380,12 +512,44 @@ def run_training(
         val_scores[name] = cur_val_scores
         test_scores[name] = cur_test_scores
 
+    if token_probe_names:
+        token_probe_config = TokenProbeTrainConfig(
+            num_heads=int(token_probe_heads),
+            mlp_width=int(token_probe_mlp_width),
+            mlp_depth=int(token_probe_mlp_depth),
+            batch_size=int(token_probe_batch_size),
+            max_epochs=int(token_probe_max_epochs),
+            patience=int(token_probe_patience),
+            learning_rate=float(token_probe_learning_rate),
+            weight_decay=float(token_probe_weight_decay),
+            continuous_loss=(
+                "mse" if str(token_probe_continuous_loss).lower() == "mse" else "huber"
+            ),
+            device=token_probe_device,
+        )
+        for probe_name in token_probe_names:
+            probe_val_scores, probe_test_scores = train_token_probe(
+                probe_type=probe_name,
+                token_embeddings=embeddings,
+                train_frame=train_frame,
+                val_frame=val_frame,
+                test_frame=test_frame,
+                target_col=target_col,
+                is_continuous=is_continuous,
+                random_seed=random_seed,
+                config=token_probe_config,
+            )
+            val_scores[probe_name] = probe_val_scores
+            test_scores[probe_name] = probe_test_scores
+
+    all_model_names = list(models.keys()) + token_probe_names
+
     val_metrics: dict[str, Any] = {}
     test_metrics: dict[str, Any] = {}
     val_position_bin_metrics: dict[str, Any] = {}
     test_position_bin_metrics: dict[str, Any] = {}
 
-    for name in models:
+    for name in all_model_names:
         val_eval = val_frame.copy()
         val_eval["pred_score"] = val_scores[name]
         test_eval = test_frame.copy()
@@ -427,9 +591,18 @@ def run_training(
                     n_bins=position_bins,
                 )
 
-    predictions = test_frame.copy()
-    for name in models:
-        predictions[f"score_{name}"] = test_scores[name]
+    predictions_val = val_frame.copy()
+    predictions_val["split"] = "val"
+    predictions_val["seed"] = int(random_seed)
+    predictions_val["run_name"] = run_name
+    predictions_test = test_frame.copy()
+    predictions_test["split"] = "test"
+    predictions_test["seed"] = int(random_seed)
+    predictions_test["run_name"] = run_name
+    for name in all_model_names:
+        predictions_val[f"score_{name}"] = val_scores[name]
+        predictions_test[f"score_{name}"] = test_scores[name]
+    predictions = pd.concat([predictions_val, predictions_test], ignore_index=True)
 
     residual_metrics: dict[str, dict[str, Any]] = {"val": {}, "test": {}}
     if residualize_against != "none":
@@ -459,13 +632,19 @@ def run_training(
 
         if target_mode == "anchor_binary":
             train_frame["residual_anchor"] = _build_residual_anchors(
-                train_frame, residual_col="residual_target", percentile=expected_anchor_percentile or 90.0
+                train_frame,
+                residual_col="residual_target",
+                percentile=expected_anchor_percentile or 90.0,
             )
             val_frame["residual_anchor"] = _build_residual_anchors(
-                val_frame, residual_col="residual_target", percentile=expected_anchor_percentile or 90.0
+                val_frame,
+                residual_col="residual_target",
+                percentile=expected_anchor_percentile or 90.0,
             )
             test_frame["residual_anchor"] = _build_residual_anchors(
-                test_frame, residual_col="residual_target", percentile=expected_anchor_percentile or 90.0
+                test_frame,
+                residual_col="residual_target",
+                percentile=expected_anchor_percentile or 90.0,
             )
 
         residual_models: dict[str, Any] = {}
@@ -494,6 +673,7 @@ def run_training(
             residual_test_y = test_residual.astype(np.float32)
 
         for name, model in residual_models.items():
+            _maybe_disable_early_stopping_for_tiny_train_set(model, residual_train_y)
             model.fit(train_residual_x, residual_train_y)
             if target_mode == "anchor_binary":
                 val_pred = predict_scores(model, val_residual_x)
@@ -529,28 +709,41 @@ def run_training(
                 ),
             }
 
-            predictions[f"residual_score_{name}"] = test_pred
+            val_mask = predictions["split"] == "val"
+            test_mask = predictions["split"] == "test"
+            predictions.loc[val_mask, f"residual_score_{name}"] = val_pred
+            predictions.loc[test_mask, f"residual_score_{name}"] = test_pred
 
     confidence_intervals: dict[str, Any] = {}
     if not is_continuous:
         effective_bootstrap_seed = random_seed if bootstrap_seed is None else int(bootstrap_seed)
+        ci_frame = predictions[predictions["split"] == "test"].copy()
         ci_comparisons = [
             ("score_activations_plus_position", "score_position_baseline"),
             ("score_activations_plus_position", "score_text_only_baseline"),
         ]
+        if has_vertical_scores:
+            ci_comparisons.append(
+                ("score_vertical_attention_plus_position", "score_position_baseline")
+            )
         for score_a, score_b in ci_comparisons:
-            if score_a not in predictions.columns or score_b not in predictions.columns:
+            if score_a not in ci_frame.columns or score_b not in ci_frame.columns:
                 continue
             ci_key = f"{score_a}_minus_{score_b}"
             ci_payload = bootstrap_pr_auc_delta_by_group(
-                predictions,
+                ci_frame,
                 score_col_a=score_a,
                 score_col_b=score_b,
                 n_bootstrap=bootstrap_iterations,
                 random_seed=effective_bootstrap_seed,
                 group_col="problem_id",
             )
-            point_a = float(test_metrics["activations_plus_position"]["pr_auc"])
+            if score_a == "score_activations_plus_position":
+                point_a = float(test_metrics["activations_plus_position"]["pr_auc"])
+            elif score_a == "score_vertical_attention_plus_position":
+                point_a = float(test_metrics["vertical_attention_plus_position"]["pr_auc"])
+            else:
+                point_a = float("nan")
             if score_b == "score_position_baseline":
                 point_b = float(test_metrics["position_baseline"]["pr_auc"])
             elif score_b == "score_text_only_baseline":
@@ -577,6 +770,7 @@ def run_training(
         "test": test_metrics,
         "residual_metrics": residual_metrics,
         "target_mode": target_mode,
+        "primary_metric_name": _primary_metric_name_for_target_mode(target_mode),
         "residualize_against": residualize_against,
         "position_bin_metrics": {
             "val": val_position_bin_metrics,
@@ -591,6 +785,7 @@ def run_training(
             "val": len(val_frame),
             "test": len(test_frame),
         },
+        "has_vertical_scores": bool(has_vertical_scores),
         # Persist extraction-time metadata in metrics for lightweight auditability.
         "cache_provenance": {
             key: shape_payload.get(key)
@@ -600,6 +795,9 @@ def run_training(
                 "drop_last_chunk",
                 "model_name_or_path",
                 "pooling",
+                "embedding_layout",
+                "num_sentences",
+                "total_tokens",
                 "layer_mode",
                 "requested_layer_index",
                 "repo_id",
@@ -607,6 +805,10 @@ def run_training(
                 "temp_dir",
                 "split_dir",
                 "compute_dtype",
+                "vertical_attention_mode",
+                "vertical_attention_depth_control",
+                "vertical_attention_light_last_n_tokens",
+                "vertical_attention_full_max_seq_len",
                 "layer_index",
                 "dtype",
             ]
@@ -662,10 +864,8 @@ def run_tripwire_checks(
 
     one_problem = int(train_frame["problem_id"].iloc[0])
     subset = train_frame[train_frame["problem_id"] == one_problem].copy()
-    subset_rows = subset["embedding_row"].to_numpy(dtype=np.int64)
-    subset_x = train_emb_x[
-        np.isin(train_frame["embedding_row"].to_numpy(dtype=np.int64), subset_rows)
-    ]
+    subset_mask = train_frame["problem_id"].to_numpy(dtype=np.int64) == one_problem
+    subset_x = train_emb_x[subset_mask]
     subset_y = subset["anchor"].to_numpy(dtype=np.int64)
 
     if len(subset) >= 5 and len(np.unique(subset_y)) > 1:

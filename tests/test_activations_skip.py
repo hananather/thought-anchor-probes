@@ -157,6 +157,10 @@ def test_extract_reuse_cache_skips_model_load(
         "anchor_percentile": 90.0,
         "drop_last_chunk": True,
         "model_name_or_path": "model",
+        "vertical_attention_mode": "off",
+        "vertical_attention_depth_control": True,
+        "vertical_attention_light_last_n_tokens": 1,
+        "vertical_attention_full_max_seq_len": 1024,
     }
     shape_path.write_text(json.dumps(shape_payload), encoding="utf-8")
 
@@ -234,6 +238,10 @@ def test_extract_reuse_cache_missing_ids_raise_without_skip(
         "anchor_percentile": 90.0,
         "drop_last_chunk": True,
         "model_name_or_path": "model",
+        "vertical_attention_mode": "off",
+        "vertical_attention_depth_control": True,
+        "vertical_attention_light_last_n_tokens": 1,
+        "vertical_attention_full_max_seq_len": 1024,
     }
     shape_path.write_text(json.dumps(shape_payload), encoding="utf-8")
 
@@ -311,6 +319,10 @@ def test_extract_reuse_cache_missing_ids_logged_with_skip(
         "anchor_percentile": 90.0,
         "drop_last_chunk": True,
         "model_name_or_path": "model",
+        "vertical_attention_mode": "off",
+        "vertical_attention_depth_control": True,
+        "vertical_attention_light_last_n_tokens": 1,
+        "vertical_attention_full_max_seq_len": 1024,
     }
     shape_path.write_text(json.dumps(shape_payload), encoding="utf-8")
 
