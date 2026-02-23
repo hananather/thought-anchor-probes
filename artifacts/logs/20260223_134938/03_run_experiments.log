@@ -1,0 +1,22 @@
+stage: run_experiments
+started_at_utc: 2026-02-23T13:50:25.460768+00:00
+cwd: /workspace/thought-anchor-probes
+command: /workspace/thought-anchor-probes/.venv/bin/python scripts/run_experiments.py --config configs/experiment.yaml --pilot-config configs/experiment_pilot.yaml --full-config configs/experiment_full.yaml --problem-id 330 --readme-path README.md
+exit_code: 1
+duration_sec: 0.371
+
+=== STDOUT ===
+
+
+=== STDERR ===
+Traceback (most recent call last):
+  File "/workspace/thought-anchor-probes/scripts/run_experiments.py", line 559, in <module>
+    main()
+  File "/workspace/thought-anchor-probes/scripts/run_experiments.py", line 427, in main
+    commands.append(run_command(["python", "-m", "ruff", "check", "."], cwd=repo_root))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/thought-anchor-probes/scripts/run_experiments.py", line 72, in run_command
+    raise RuntimeError(msg)
+RuntimeError: Command failed: python -m ruff check .
+/usr/bin/python: No module named ruff
+

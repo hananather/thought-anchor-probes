@@ -1,0 +1,73 @@
+stage: run_scaling_grid
+started_at_utc: 2026-02-23T14:00:31.703225+00:00
+cwd: /workspace/thought-anchor-probes
+command: /workspace/thought-anchor-probes/.venv/bin/python scripts/run_scaling_grid.py --configs configs/scaling_llama_correct.yaml configs/scaling_llama_incorrect.yaml configs/scaling_qwen_correct.yaml configs/scaling_qwen_incorrect.yaml --seeds 0 1 2 3 4 --readme-path README.md
+exit_code: 0
+duration_sec: 941.921
+
+=== STDOUT ===
+{
+  "num_commands": 28,
+  "num_shared_problems": 20,
+  "readme_path": "/workspace/thought-anchor-probes/README.md",
+  "settings": [
+    {
+      "best_model": "activations_plus_position",
+      "best_pr_auc_mean": 0.1683908106057643,
+      "best_primary_metric_mean": 0.1683908106057643,
+      "num_ci_records": 10,
+      "num_runs": 5,
+      "primary_metric": "pr_auc",
+      "primary_metric_name": "pr_auc",
+      "run_root": "artifacts/scaling/llama_correct",
+      "setting": "deepseek-r1-distill-llama-8b__correct_base_solution",
+      "storage_total_bytes_estimate": 33393472,
+      "storage_total_human": "31.85 MiB"
+    },
+    {
+      "best_model": "position_baseline",
+      "best_pr_auc_mean": 0.18918195906477828,
+      "best_primary_metric_mean": 0.18918195906477828,
+      "num_ci_records": 10,
+      "num_runs": 5,
+      "primary_metric": "pr_auc",
+      "primary_metric_name": "pr_auc",
+      "run_root": "artifacts/scaling/llama_incorrect",
+      "setting": "deepseek-r1-distill-llama-8b__incorrect_base_solution",
+      "storage_total_bytes_estimate": 29058944,
+      "storage_total_human": "27.71 MiB"
+    },
+    {
+      "best_model": "position_baseline",
+      "best_pr_auc_mean": 0.18006604134110055,
+      "best_primary_metric_mean": 0.18006604134110055,
+      "num_ci_records": 10,
+      "num_runs": 5,
+      "primary_metric": "pr_auc",
+      "primary_metric_name": "pr_auc",
+      "run_root": "artifacts/scaling/qwen_correct",
+      "setting": "deepseek-r1-distill-qwen-14b__correct_base_solution",
+      "storage_total_bytes_estimate": 30586624,
+      "storage_total_human": "29.17 MiB"
+    },
+    {
+      "best_model": "mlp_probe",
+      "best_pr_auc_mean": 0.13581456117695434,
+      "best_primary_metric_mean": 0.13581456117695434,
+      "num_ci_records": 10,
+      "num_runs": 5,
+      "primary_metric": "pr_auc",
+      "primary_metric_name": "pr_auc",
+      "run_root": "artifacts/scaling/qwen_incorrect",
+      "setting": "deepseek-r1-distill-qwen-14b__incorrect_base_solution",
+      "storage_total_bytes_estimate": 36532864,
+      "storage_total_human": "34.84 MiB"
+    }
+  ],
+  "shared_problem_ids_path": "data/problem_ids_scaling_shared.json",
+  "shared_splits_path": "data/splits_scaling_shared.json",
+  "summary_markdown": "/workspace/thought-anchor-probes/artifacts/scaling/scaling_summary.md"
+}
+
+
+=== STDERR ===

@@ -1,0 +1,23 @@
+stage: pytest
+started_at_utc: 2026-02-23T13:49:50.961565+00:00
+cwd: /workspace/thought-anchor-probes
+command: /workspace/thought-anchor-probes/.venv/bin/python -m pytest -q
+exit_code: 0
+duration_sec: 34.490
+
+=== STDOUT ===
+..................................................................       [100%]
+=============================== warnings summary ===============================
+tests/test_training_guards.py::test_run_training_adds_vertical_models_when_scores_present
+  /workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/sklearn/neural_network/_multilayer_perceptron.py:785: ConvergenceWarning: Stochastic Optimizer: Maximum iterations (10) reached and the optimization hasn't converged yet.
+    warnings.warn(
+
+tests/test_training_guards.py::test_run_training_adds_vertical_models_when_scores_present
+tests/test_training_guards.py::test_run_training_adds_vertical_models_when_scores_present
+  /workspace/thought-anchor-probes/src/ta_probe/metrics.py:57: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+    corr, _ = spearmanr(group[score_col].to_numpy(), group[true_importance_col].to_numpy())
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+
+=== STDERR ===

@@ -1,0 +1,12 @@
+stage: ruff_check
+started_at_utc: 2026-02-23T13:44:32.953277+00:00
+cwd: /workspace/thought-anchor-probes
+command: /workspace/thought-anchor-probes/.venv/bin/python -m ruff check .
+exit_code: 0
+duration_sec: 0.233
+
+=== STDOUT ===
+All checks passed!
+
+
+=== STDERR ===

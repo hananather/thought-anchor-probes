@@ -1,0 +1,31 @@
+stage: pytest
+started_at_utc: 2026-02-23T13:44:33.189231+00:00
+cwd: /workspace/thought-anchor-probes
+command: /workspace/thought-anchor-probes/.venv/bin/python -m pytest -q
+exit_code: 0
+duration_sec: 29.467
+
+=== STDOUT ===
+..................................................................       [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.11/site-packages/joblib/_multiprocessing_helpers.py:44
+  /workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/joblib/_multiprocessing_helpers.py:44: UserWarning: [Errno 13] Permission denied.  joblib will operate in serial mode
+    warnings.warn("%s.  joblib will operate in serial mode" % (e,))
+
+.venv/lib/python3.11/site-packages/torch/cuda/__init__.py:184
+  /workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/torch/cuda/__init__.py:184: UserWarning: CUDA initialization: Unexpected error from cudaGetDeviceCount(). Did you run some cuda functions before calling NumCudaDevices() that might have already set an error? Error 304: OS call failed or operation not supported on this OS (Triggered internally at /pytorch/c10/cuda/CUDAFunctions.cpp:119.)
+    return torch._C._cuda_getDeviceCount() > 0
+
+tests/test_training_guards.py::test_run_training_adds_vertical_models_when_scores_present
+  /workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/sklearn/neural_network/_multilayer_perceptron.py:785: ConvergenceWarning: Stochastic Optimizer: Maximum iterations (10) reached and the optimization hasn't converged yet.
+    warnings.warn(
+
+tests/test_training_guards.py::test_run_training_adds_vertical_models_when_scores_present
+tests/test_training_guards.py::test_run_training_adds_vertical_models_when_scores_present
+  /workspace/thought-anchor-probes/src/ta_probe/metrics.py:57: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+    corr, _ = spearmanr(group[score_col].to_numpy(), group[true_importance_col].to_numpy())
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+
+=== STDERR ===

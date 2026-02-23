@@ -1,0 +1,62 @@
+stage: run_experiments
+started_at_utc: 2026-02-23T13:45:02.662248+00:00
+cwd: /workspace/thought-anchor-probes
+command: /workspace/thought-anchor-probes/.venv/bin/python scripts/run_experiments.py --config configs/experiment.yaml --pilot-config configs/experiment_pilot.yaml --full-config configs/experiment_full.yaml --problem-id 330 --readme-path README.md
+exit_code: 1
+duration_sec: 27.162
+
+=== STDOUT ===
+
+
+=== STDERR ===
+Traceback (most recent call last):
+  File "/workspace/thought-anchor-probes/scripts/run_experiments.py", line 559, in <module>
+    main()
+  File "/workspace/thought-anchor-probes/scripts/run_experiments.py", line 430, in main
+    run_command(
+  File "/workspace/thought-anchor-probes/scripts/run_experiments.py", line 72, in run_command
+    raise RuntimeError(msg)
+RuntimeError: Command failed: python scripts/build_problem_index.py --config configs/experiment.yaml --refresh
+oblem_ids
+    files = api.list_repo_files(repo_id=repo_id, repo_type="dataset")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/huggingface_hub/utils/_validators.py", line 89, in _inner_fn
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/huggingface_hub/hf_api.py", line 3184, in list_repo_files
+    return [
+           ^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/huggingface_hub/hf_api.py", line 3184, in <listcomp>
+    return [
+           ^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/huggingface_hub/hf_api.py", line 3321, in list_repo_tree
+    for path_info in paginate(path=tree_url, headers=headers, params={"recursive": recursive, "expand": expand}):
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/huggingface_hub/utils/_pagination.py", line 36, in paginate
+    r = session.get(path, params=params, headers=headers)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/httpx/_client.py", line 1053, in get
+    return self.request(
+           ^^^^^^^^^^^^^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/httpx/_client.py", line 825, in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/httpx/_client.py", line 914, in send
+    response = self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/httpx/_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/httpx/_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/httpx/_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/httpx/_transports/default.py", line 249, in handle_request
+    with map_httpcore_exceptions():
+  File "/usr/lib/python3.11/contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/workspace/thought-anchor-probes/.venv/lib/python3.11/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: [Errno -3] Temporary failure in name resolution
+

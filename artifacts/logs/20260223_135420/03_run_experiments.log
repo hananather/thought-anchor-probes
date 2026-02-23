@@ -1,0 +1,22 @@
+stage: run_experiments
+started_at_utc: 2026-02-23T13:55:18.503206+00:00
+cwd: /workspace/thought-anchor-probes
+command: /workspace/thought-anchor-probes/.venv/bin/python scripts/run_experiments.py --config configs/experiment.yaml --pilot-config configs/experiment_pilot.yaml --full-config configs/experiment_full.yaml --problem-id 330 --readme-path README.md
+exit_code: 0
+duration_sec: 313.183
+
+=== STDOUT ===
+{
+  "commands_executed": 17,
+  "full_best_model": "linear_probe",
+  "pilot_best_model": "mlp_probe",
+  "readme_path": "/workspace/thought-anchor-probes/README.md",
+  "span_pass_rate": 1.0,
+  "verification": {
+    "resampling_avg_diff": 0.008325835111825046,
+    "resampling_pass": true
+  }
+}
+
+
+=== STDERR ===
