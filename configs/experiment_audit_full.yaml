@@ -4,7 +4,7 @@ dataset:
   temp_dir: temperature_0.6_top_p_0.95
   split_dir: correct_base_solution
   forced_split_dir: correct_base_solution_forced_answer
-  num_problems: 5
+  num_problems: 9999
   seed: 0
 
 labels:
@@ -35,11 +35,11 @@ training:
   position_bins: 5
 
 paths:
-  problem_ids_json: data/problem_ids_pilot.json
-  splits_json: data/splits_pilot.json
-  embeddings_memmap: artifacts/runs/pilot/sentence_embeddings.dat
-  embeddings_shape_json: artifacts/runs/pilot/sentence_embeddings_shape.json
-  metadata_parquet: artifacts/runs/pilot/sentence_metadata.parquet
-  metrics_json: artifacts/runs/pilot/metrics.json
-  predictions_parquet: artifacts/runs/pilot/predictions.parquet
-  report_md: artifacts/runs/pilot/report.md
+  problem_ids_json: data/problem_ids_audit_full.json
+  splits_json: data/splits_audit_full.json
+  embeddings_memmap: artifacts/audit/full/sentence_embeddings.dat
+  embeddings_shape_json: artifacts/audit/full/sentence_embeddings_shape.json
+  metadata_parquet: artifacts/audit/full/sentence_metadata.parquet
+  metrics_json: artifacts/audit/full/metrics.json
+  predictions_parquet: artifacts/audit/full/predictions.parquet
+  report_md: artifacts/audit/full/report.md

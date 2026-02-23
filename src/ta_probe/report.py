@@ -51,6 +51,57 @@ def _qualitative_examples(predictions: pd.DataFrame, model_col: str, top_n: int 
     return "\n".join(lines)
 
 
+def _confidence_interval_section(metrics: dict[str, Any]) -> str:
+    ci_payload = metrics.get("confidence_intervals", {})
+    if not ci_payload:
+        return ""
+
+    lines = [
+        "## Bootstrap Confidence Intervals",
+        "",
+        "| Comparison | Point delta | Delta mean | 95% CI low | 95% CI high | Excludes 0 |",
+        "|---|---:|---:|---:|---:|---|",
+    ]
+    for comparison, payload in sorted(ci_payload.items()):
+        ci_low = float(payload.get("ci_low", float("nan")))
+        ci_high = float(payload.get("ci_high", float("nan")))
+        excludes_zero = bool(ci_low > 0.0 or ci_high < 0.0)
+        lines.append(
+            f"| {comparison} | {float(payload.get('point_delta', float('nan'))):.4f} "
+            f"| {float(payload.get('delta_mean', float('nan'))):.4f} "
+            f"| {ci_low:.4f} | {ci_high:.4f} | {excludes_zero} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _position_bin_section(metrics: dict[str, Any]) -> str:
+    payload = metrics.get("position_bin_metrics", {})
+    test_bins = payload.get("test", {})
+    num_bins = int(payload.get("num_bins", 0))
+    if not test_bins or num_bins <= 0:
+        return ""
+
+    lines = ["## Position-Bin Diagnostics (Test PR AUC)", ""]
+    for model_name, bins in sorted(test_bins.items()):
+        lines.extend(
+            [
+                f"### {model_name}",
+                "",
+                "| Bin | Count | Prevalence | PR AUC |",
+                "|---:|---:|---:|---:|",
+            ]
+        )
+        for item in bins:
+            lines.append(
+                f"| {int(item['bin_index'])} | {int(item['count'])} "
+                f"| {_format_metric(float(item['prevalence']))} "
+                f"| {_format_metric(float(item['pr_auc']))} |"
+            )
+        lines.append("")
+    return "\n".join(lines)
+
+
 def build_report(
     *,
     metrics_path: str | Path,
@@ -91,6 +142,14 @@ def build_report(
             for key, value in payload.items():
                 lines.append(f"- {key}: {_format_metric(value)}")
             lines.append("")
+
+    ci_section = _confidence_interval_section(metrics)
+    if ci_section:
+        lines.append(ci_section)
+
+    position_section = _position_bin_section(metrics)
+    if position_section:
+        lines.append(position_section)
 
     score_cols = [column for column in predictions.columns if column.startswith("score_")]
     for score_col in score_cols:

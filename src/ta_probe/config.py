@@ -45,6 +45,7 @@ class ActivationConfig(BaseModel):
     layer_index: int | None = None
     pooling: Literal["mean"] = "mean"
     dtype: Literal["float16", "bfloat16", "float32"] = "float16"
+    storage_dtype: Literal["float16", "float32"] = "float32"
     device: Literal["cpu", "mps", "cuda", "auto"] = "auto"
     batch_size: int = 1
 
@@ -59,12 +60,31 @@ class TrainingConfig(BaseModel):
     k_values: list[int] = Field(default_factory=lambda: [5, 10])
     mlp_hidden_dim: int = 100
     mlp_max_iter: int = 300
+    bootstrap_iterations: int = 1000
+    bootstrap_seed: int | None = None
+    position_bins: int = 5
 
     @field_validator("train_fraction", "val_fraction", "test_fraction")
     @classmethod
     def validate_fraction(cls, value: float) -> float:
         if value <= 0 or value >= 1:
             msg = "split fractions must be between 0 and 1"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("bootstrap_iterations")
+    @classmethod
+    def validate_bootstrap_iterations(cls, value: int) -> int:
+        if value <= 0:
+            msg = "bootstrap_iterations must be positive"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("position_bins")
+    @classmethod
+    def validate_position_bins(cls, value: int) -> int:
+        if value < 0:
+            msg = "position_bins must be zero or positive"
             raise ValueError(msg)
         return value
 

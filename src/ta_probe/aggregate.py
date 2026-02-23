@@ -17,15 +17,19 @@ SEED_METRIC_COLUMNS = [
 
 
 def discover_metric_files(run_root: str | Path) -> list[Path]:
-    """Find per-run metrics files under a run root directory."""
+    """Find per-run metrics files under a run root directory.
+
+    Prefer `metrics_seed_*.json` and ignore ad-hoc backups like
+    `metrics_before_*.json`.
+    """
     root = Path(run_root)
-    candidates = sorted(root.glob("metrics*.json"))
-    return [
-        path
-        for path in candidates
-        if path.name not in {"aggregate_metrics.json", "metrics.json"}
-        or path.name.startswith("metrics_seed_")
-    ]
+    seed_files = sorted(root.glob("metrics_seed_*.json"))
+    if seed_files:
+        return seed_files
+    default_file = root / "metrics.json"
+    if default_file.exists():
+        return [default_file]
+    return []
 
 
 def _run_label_from_path(path: Path) -> str:
@@ -78,6 +82,56 @@ def _aggregate_summary(records: pd.DataFrame) -> pd.DataFrame:
     return summary.sort_values("pr_auc_mean", ascending=False, ignore_index=True)
 
 
+def _flatten_ci_records(payload: dict[str, Any], run_label: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    seed = int(payload.get("seed", -1))
+    ci_payload = payload.get("confidence_intervals", {})
+    for comparison, metrics in ci_payload.items():
+        ci_low = float(metrics.get("ci_low", float("nan")))
+        ci_high = float(metrics.get("ci_high", float("nan")))
+        excludes_zero = bool(ci_low > 0.0 or ci_high < 0.0)
+        records.append(
+            {
+                "run_label": run_label,
+                "seed": seed,
+                "comparison": comparison,
+                "point_delta": float(metrics.get("point_delta", float("nan"))),
+                "delta_mean": float(metrics.get("delta_mean", float("nan"))),
+                "ci_low": ci_low,
+                "ci_high": ci_high,
+                "n_valid_bootstrap": int(metrics.get("n_valid_bootstrap", 0)),
+                "n_bootstrap": int(metrics.get("n_bootstrap", 0)),
+                "ci_excludes_zero": excludes_zero,
+            }
+        )
+    return records
+
+
+def _aggregate_ci_summary(ci_records: pd.DataFrame) -> pd.DataFrame:
+    if ci_records.empty:
+        return pd.DataFrame(
+            columns=[
+                "comparison",
+                "point_delta_mean",
+                "point_delta_std",
+                "delta_mean_mean",
+                "delta_mean_std",
+                "ci_excludes_zero_count",
+                "seed_count",
+            ]
+        )
+    grouped = ci_records.groupby("comparison", as_index=False)
+    summary = grouped.agg(
+        point_delta_mean=("point_delta", "mean"),
+        point_delta_std=("point_delta", lambda series: float(series.std(ddof=0))),
+        delta_mean_mean=("delta_mean", "mean"),
+        delta_mean_std=("delta_mean", lambda series: float(series.std(ddof=0))),
+        ci_excludes_zero_count=("ci_excludes_zero", "sum"),
+        seed_count=("ci_excludes_zero", "count"),
+    )
+    return summary.sort_values("comparison", ignore_index=True)
+
+
 def _summary_markdown(seed_records: pd.DataFrame, summary_records: pd.DataFrame) -> str:
     """Build a markdown summary table for README-friendly reporting."""
     lines: list[str] = [
@@ -125,6 +179,44 @@ def _summary_markdown(seed_records: pd.DataFrame, summary_records: pd.DataFrame)
     return "\n".join(lines)
 
 
+def _ci_markdown(ci_records: pd.DataFrame, ci_summary: pd.DataFrame) -> str:
+    if ci_records.empty:
+        return ""
+
+    lines = [
+        "## Bootstrap CI Summary (Test Deltas)",
+        "",
+        (
+            "| Comparison | Point delta mean | Point delta std | Bootstrap delta mean "
+            "| Bootstrap delta std | Seeds CI excludes 0 | Seeds |"
+        ),
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for _, row in ci_summary.iterrows():
+        lines.append(
+            f"| {row['comparison']} | {row['point_delta_mean']:.4f} | {row['point_delta_std']:.4f} "
+            f"| {row['delta_mean_mean']:.4f} | {row['delta_mean_std']:.4f} "
+            f"| {int(row['ci_excludes_zero_count'])} | {int(row['seed_count'])} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "### Per-Seed CIs",
+            "",
+            "| Run | Seed | Comparison | CI low | CI high | Excludes 0 |",
+            "|---|---:|---|---:|---:|---|",
+        ]
+    )
+    for _, row in ci_records.sort_values(["run_label", "comparison"], ignore_index=True).iterrows():
+        lines.append(
+            f"| {row['run_label']} | {int(row['seed'])} | {row['comparison']} "
+            f"| {row['ci_low']:.4f} | {row['ci_high']:.4f} | {bool(row['ci_excludes_zero'])} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def aggregate_run_metrics(
     run_root: str | Path,
     output_json_path: str | Path | None = None,
@@ -138,13 +230,17 @@ def aggregate_run_metrics(
         raise FileNotFoundError(msg)
 
     records: list[dict[str, Any]] = []
+    ci_records: list[dict[str, Any]] = []
     for metric_file in metric_files:
         payload = _load_metrics_file(metric_file)
         run_label = _run_label_from_path(metric_file)
         records.extend(_flatten_seed_records(payload, run_label))
+        ci_records.extend(_flatten_ci_records(payload, run_label))
 
     seed_df = pd.DataFrame(records)
     summary_df = _aggregate_summary(seed_df)
+    ci_df = pd.DataFrame(ci_records)
+    ci_summary_df = _aggregate_ci_summary(ci_df)
     best_model = summary_df.iloc[0]["model"] if not summary_df.empty else None
 
     summary_payload = {
@@ -155,6 +251,8 @@ def aggregate_run_metrics(
         "best_model_by_mean_pr_auc": best_model,
         "seed_records": seed_df.to_dict(orient="records"),
         "summary_by_model": summary_df.to_dict(orient="records"),
+        "ci_records": ci_df.to_dict(orient="records"),
+        "ci_summary": ci_summary_df.to_dict(orient="records"),
     }
 
     if output_json_path is None:
@@ -169,7 +267,11 @@ def aggregate_run_metrics(
 
     md_path = Path(output_md_path)
     md_path.parent.mkdir(parents=True, exist_ok=True)
-    md_path.write_text(_summary_markdown(seed_df, summary_df), encoding="utf-8")
+    markdown = _summary_markdown(seed_df, summary_df)
+    ci_markdown = _ci_markdown(ci_df, ci_summary_df)
+    if ci_markdown:
+        markdown = f"{markdown}\n{ci_markdown}".strip() + "\n"
+    md_path.write_text(markdown, encoding="utf-8")
 
     summary_payload["output_json"] = str(json_path)
     summary_payload["output_md"] = str(md_path)

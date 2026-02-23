@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
@@ -21,11 +22,38 @@ def build_position_features(frame: pd.DataFrame) -> np.ndarray:
     return frame[POSITION_FEATURE_COLUMNS].to_numpy(dtype=np.float32)
 
 
+def build_text_features(frame: pd.DataFrame) -> np.ndarray:
+    """Return chunk text values for text-only baselines."""
+    if "chunk_text" not in frame.columns:
+        msg = "Missing required text feature column: ['chunk_text']"
+        raise ValueError(msg)
+    values = frame["chunk_text"].fillna("").astype(str).to_numpy(dtype=object)
+    return values
+
+
 def make_position_baseline(random_seed: int) -> Pipeline:
     """Logistic regression baseline using only position features."""
     return Pipeline(
         steps=[
             ("scaler", StandardScaler()),
+            (
+                "clf",
+                LogisticRegression(
+                    class_weight="balanced",
+                    solver="lbfgs",
+                    max_iter=1000,
+                    random_state=random_seed,
+                ),
+            ),
+        ]
+    )
+
+
+def make_text_baseline(random_seed: int) -> Pipeline:
+    """Logistic regression baseline over TF-IDF text features."""
+    return Pipeline(
+        steps=[
+            ("tfidf", TfidfVectorizer(ngram_range=(1, 2), min_df=1, max_features=10000)),
             (
                 "clf",
                 LogisticRegression(

@@ -4,7 +4,7 @@ dataset:
   temp_dir: temperature_0.6_top_p_0.95
   split_dir: correct_base_solution
   forced_split_dir: correct_base_solution_forced_answer
-  num_problems: 5
+  num_problems: 9999
   seed: 0
 
 labels:
@@ -18,7 +18,7 @@ activations:
   layer_index:
   pooling: mean
   dtype: float16
-  storage_dtype: float32
+  storage_dtype: float16
   device: auto
   batch_size: 1
 
@@ -30,16 +30,16 @@ training:
   k_values: [5, 10]
   mlp_hidden_dim: 100
   mlp_max_iter: 300
-  bootstrap_iterations: 1000
+  bootstrap_iterations: 2000
   bootstrap_seed:
   position_bins: 5
 
 paths:
-  problem_ids_json: data/problem_ids_pilot.json
-  splits_json: data/splits_pilot.json
-  embeddings_memmap: artifacts/runs/pilot/sentence_embeddings.dat
-  embeddings_shape_json: artifacts/runs/pilot/sentence_embeddings_shape.json
-  metadata_parquet: artifacts/runs/pilot/sentence_metadata.parquet
-  metrics_json: artifacts/runs/pilot/metrics.json
-  predictions_parquet: artifacts/runs/pilot/predictions.parquet
-  report_md: artifacts/runs/pilot/report.md
+  problem_ids_json: data/problem_ids_scaling_shared.json
+  splits_json: data/splits_scaling_shared.json
+  embeddings_memmap: artifacts/scaling/llama_correct/sentence_embeddings.dat
+  embeddings_shape_json: artifacts/scaling/llama_correct/sentence_embeddings_shape.json
+  metadata_parquet: artifacts/scaling/llama_correct/sentence_metadata.parquet
+  metrics_json: artifacts/scaling/llama_correct/metrics.json
+  predictions_parquet: artifacts/scaling/llama_correct/predictions.parquet
+  report_md: artifacts/scaling/llama_correct/report.md

@@ -177,6 +177,28 @@ def format_tripwire_table(seed_metrics: dict[str, dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def format_ci_summary_table(ci_summary: list[dict[str, Any]]) -> str:
+    """Build markdown table for bootstrap CI summaries."""
+    if not ci_summary:
+        return "- No bootstrap CI summaries were generated."
+
+    lines = [
+        (
+            "| Comparison | Point delta mean | Point delta std | Bootstrap delta mean "
+            "| Bootstrap delta std | Seeds CI excludes 0 | Seeds |"
+        ),
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in ci_summary:
+        lines.append(
+            f"| {row['comparison']} "
+            f"| {float(row['point_delta_mean']):.4f} | {float(row['point_delta_std']):.4f} "
+            f"| {float(row['delta_mean_mean']):.4f} | {float(row['delta_mean_std']):.4f} "
+            f"| {int(row['ci_excludes_zero_count'])} | {int(row['seed_count'])} |"
+        )
+    return "\n".join(lines)
+
+
 def format_failure_summary(failure_payload: dict[str, Any]) -> str:
     """Format extraction failures as markdown bullets."""
     skipped = failure_payload.get("skipped_problem_ids", [])
@@ -259,6 +281,9 @@ def build_results_block(
         "### Pilot Tripwire Outcomes",
         format_tripwire_table(pilot_seed_metrics),
         "",
+        "### Pilot Bootstrap CI Summary",
+        format_ci_summary_table(pilot_aggregate.get("ci_summary", [])),
+        "",
         "### Pilot Extraction Failures",
         format_failure_summary(pilot_failures),
         "",
@@ -273,6 +298,9 @@ def build_results_block(
         "### Full Tripwire Outcomes",
         format_tripwire_table(full_seed_metrics),
         "",
+        "### Full Bootstrap CI Summary",
+        format_ci_summary_table(full_aggregate.get("ci_summary", [])),
+        "",
         "### Full Extraction Failures",
         format_failure_summary(full_failures),
         "",
@@ -281,7 +309,10 @@ def build_results_block(
             "- Planned and executed: resampling verification, span checks, "
             "pilot gate, full run, and three seeds."
         ),
-        "- Planned and executed: position baseline, linear probe, and MLP probe.",
+        (
+            "- Planned and executed: position baseline, text-only baseline, "
+            "linear probe, MLP probe, and activations+position probe."
+        ),
         "- Planned and executed: problem-level train, validation, and test splits.",
         "",
         "### Deviations",
@@ -317,6 +348,7 @@ def stage_run(
             "--skip-failed",
             "--failure-log",
             str(failure_log),
+            "--reuse-cache",
         ],
         cwd=repo_root,
     )

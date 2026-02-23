@@ -18,6 +18,7 @@ activations:
   layer_index:
   pooling: mean
   dtype: float16
+  storage_dtype: float32
   device: auto
   batch_size: 1
 
@@ -29,6 +30,9 @@ training:
   k_values: [5, 10]
   mlp_hidden_dim: 100
   mlp_max_iter: 300
+  bootstrap_iterations: 1000
+  bootstrap_seed:
+  position_bins: 5
 
 paths:
   problem_ids_json: data/problem_ids.json

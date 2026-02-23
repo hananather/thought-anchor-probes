@@ -34,6 +34,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path to write extraction failure details as JSON.",
     )
+    parser.add_argument(
+        "--reuse-cache",
+        action="store_true",
+        help="Reuse existing extraction artifacts when cache provenance matches config.",
+    )
     return parser.parse_args()
 
 
@@ -70,11 +75,14 @@ def main() -> None:
         drop_last_chunk=config.labels.drop_last_chunk,
         device=config.activations.device,
         dtype_name=config.activations.dtype,
+        pooling=config.activations.pooling,
+        storage_dtype_name=config.activations.storage_dtype,
         embeddings_memmap_path=config.paths.embeddings_memmap,
         embeddings_shape_path=config.paths.embeddings_shape_json,
         metadata_path=config.paths.metadata_parquet,
         skip_failed_problems=args.skip_failed,
         failure_log_path=args.failure_log,
+        reuse_cache_if_valid=args.reuse_cache,
     )
 
     print(json.dumps(result, indent=2, sort_keys=True))
